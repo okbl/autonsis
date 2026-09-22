@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node build.mjs && node test/run.mjs && node test/smoke.mjs"
+    "test": "node build.mjs && node test/run.mjs && node test/ext.mjs && node test/smoke.mjs",
+    "pack:ext": "node build.mjs && cd extension && zip -qr ../dist/nsis-extension.zip . && echo dist/nsis-extension.zip"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.5",

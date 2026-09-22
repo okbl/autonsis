@@ -96,8 +96,8 @@ details.card>summary+*{margin-top:12px}
 .bmk{display:inline-block;background:var(--acc);color:#FBF9F6;text-decoration:none;font-weight:600;
   border-radius:999px;padding:10px 20px;cursor:grab}
 .bmk:hover{background:var(--acc-2)}
-.btn{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:999px;
-  padding:8px 16px;font:inherit;font-size:14px;cursor:pointer}
+.btn{display:inline-block;border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);
+  border-radius:999px;padding:8px 16px;font:inherit;font-size:14px;cursor:pointer;text-decoration:none}
 .btn:hover{border-color:var(--ink-3);color:var(--ink)}
 ol{padding-left:22px}
 ol li{margin:6px 0}
@@ -145,6 +145,21 @@ pre{display:none}
     <b>Sources</b> → <b>Snippets</b>), если режим разработчика не закрыт политикой:
     <button class="btn" id="copy">Скопировать код</button> <span id="done"></span></p>
     <pre id="code"></pre>
+  </details>
+
+  <details class="card">
+    <summary><span class="caret"></span>Совсем без нажатий — расширение</summary>
+    <p>Закладка работает только когда её нажали, и только если политика браузера это
+    позволяет. Расширение проверяет НСИС само — раз в 15 минут, без открытых вкладок и
+    без единого клика — и складывает ответы в <code>Загрузки\nsis-inbox</code>, откуда их
+    забирает эта страница.</p>
+    <p>Ставится администратором политикой браузера, тем же способом, которым раскатан сам
+    Chromium GOST: программ на компьютере не появляется. Разрешения — только скачивание,
+    память о скачанном, будильник и единственный адрес <code>bff.nsis.ru</code>;
+    content-script'ов нет, страницы оно не читает.</p>
+    <p><a class="btn" href="nsis-extension.zip" download>Скачать расширение (.zip)</a></p>
+    <p class="small">Как упаковать, какой политикой поставить и готовый текст заявки в ИТ —
+    в <code>docs/EXTENSION.md</code> в репозитории.</p>
   </details>
 
   <div class="card small">

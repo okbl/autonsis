@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<style>
+:root{--bg:#F1ECE6;--surface:#FBF9F6;--line:#DDD5CD;--line-2:#C6BCB1;--ink:#2B2D31;--ink-2:#5F6165;
+  --ink-3:#8A867F;--acc:#8D321F;--acc-2:#A94229;--olive:#3A4027;--brick:#B25720}
+*{box-sizing:border-box}
+body{width:300px;margin:0;padding:14px;background:var(--bg);color:var(--ink);
+  font-family:Onest,"Segoe UI",system-ui,sans-serif;font-size:13.5px;line-height:1.45;
+  font-variant-numeric:tabular-nums}
+h1{margin:0 0 10px;font-size:15px;letter-spacing:-.015em;display:flex;align-items:center;gap:8px}
+.mark{width:18px;height:18px;border-radius:6px;background:linear-gradient(135deg,#8D321F,#7D4047)}
+.row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)}
+.row:last-of-type{border-bottom:0}
+.row span:first-child{color:var(--ink-3)}
+.st{font-weight:600}
+.st.ok{color:var(--olive)}
+.st.warn{color:var(--acc)}
+.st.err{color:var(--brick)}
+button{font:inherit;font-size:13px;cursor:pointer;border-radius:999px;padding:7px 14px;
+  border:1px solid var(--acc);background:var(--acc);color:#FBF9F6;font-weight:600;width:100%;margin-top:10px}
+button:hover{background:var(--acc-2)}
+button.sec{background:var(--surface);color:var(--ink-2);border-color:var(--line-2);font-weight:400}
+button.sec:hover{color:var(--ink);border-color:var(--ink-3)}
+p.hint{color:var(--ink-3);font-size:12px;margin:10px 0 0}
+</style>
+</head>
+<body>
+<h1><span class="mark"></span>НСИС — ответы</h1>
+<div class="row"><span>состояние</span><span class="st" id="status">…</span></div>
+<div class="row"><span>последняя проверка</span><span id="when">—</span></div>
+<div class="row"><span>скачано за прошлый раз</span><span id="last">—</span></div>
+<div class="row"><span>скачано всего</span><span id="total">—</span></div>
+<button id="check">Проверить сейчас</button>
+<button class="sec" id="open">Открыть раскладку</button>
+<p class="hint">Файлы попадают в «Загрузки/НСИС-входящие». Имена, папки по дням и журнал делает страница «НСИС — ответы».</p>
+<script src="popup.js"></script>
+</body>
+</html>

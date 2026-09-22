@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "НСИС — автоскачивание ответов",
+  "version": "1.0.0",
+  "description": "Проверяет личный кабинет НСИС и скачивает готовые ответы в папку загрузок. Ничего не отправляет наружу.",
+  "permissions": ["downloads", "storage", "alarms"],
+  "host_permissions": ["https://bff.nsis.ru/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "НСИС — ответы" },
+  "icons": { "128": "icon.png" }
+}
