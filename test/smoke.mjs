@@ -104,6 +104,7 @@ global.fetch = async (url) => {
 };
 
 let failed = 0;
+const eqx = (name, got, want) => ok(name, JSON.stringify(got) === JSON.stringify(want), got);
 const ok = (name, cond, extra) => {
   console.log(`${cond ? '  ok  ' : ' FAIL '} ${name}`);
   if (!cond) {
@@ -204,8 +205,26 @@ pageApp.core.stopAuto(true);
 ok('приложение смонтировано в контейнер страницы', !!site.window.document.querySelector('#nsis-app #nsis-auto-panel'));
 ok('недоступность НСИС распознана', pageApp.core.state.nsis === 'blocked', pageApp.core.state.nsis);
 const pageShadow = () => site.window.document.getElementById('nsis-auto-panel').shadowRoot.innerHTML;
-ok('сказано, почему НСИС недоступен', pageShadow().includes('не дотянуться'));
+ok('предложен мост через список кабинета', pageShadow().includes('Забрать ответы из НСИС'));
+ok('есть кнопка «Открыть список»', pageShadow().includes('Открыть список НСИС'));
 ok('есть кнопка папки загрузок', pageShadow().includes('Папка загрузок'));
+
+// мост: список обращений → скачивания переходами
+const opened = [];
+site.window.open = (url) => opened.push(url);
+const bridge = await pageApp.core.takeList(
+  JSON.stringify({
+    queries: [
+      { requestId: 'q1', answers: [{ pdf: { fileId: 'f1', signId: 's1', fileSize: 700 } }] },
+      { requestId: 'q2', answers: [{ pdf: { fileId: 'f2', signId: 's2', fileSize: 0 } }] },
+    ],
+  })
+);
+eqx('мост посчитал обращения', [bridge.seen, bridge.ready, bridge.started], [2, 1, 1]);
+ok('открыт адрес готового ответа', opened.length === 1 && opened[0].includes('fileId=f1'), opened);
+ok('итог моста виден в интерфейсе', pageShadow().includes('Запущено скачиваний: 1'));
+const bad = await pageApp.core.takeList('совсем не json');
+ok('мусор объяснён человеческим языком', /не удалось разобрать JSON/.test(bad.error || ''), bad);
 
 // перетаскивание файла — путь без разрешений на папки
 await pageApp.core.addFiles([

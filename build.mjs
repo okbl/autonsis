@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url';
 import { minify } from 'terser';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const ORDER = ['pdftext.js', 'parse.js', 'name.js', 'api.js', 'store.js', 'core.js', 'diag.js', 'ui.js', 'boot.js'];
+const ORDER = ['pdftext.js', 'parse.js', 'name.js', 'api.js', 'bridge.js', 'store.js', 'core.js', 'diag.js', 'ui.js', 'boot.js'];
 
 /** Убираем import/export: в одном файле модули не нужны. */
 function flatten(src) {

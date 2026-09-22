@@ -14,6 +14,7 @@ import { pdfPagesText } from '../src/pdftext.js';
 import { parseAnswer } from '../src/parse.js';
 import { fileNameFor, folderForDay, withCopyIndex, sanitize, asciiName } from '../src/name.js';
 import { answerOf, isReadyFile, managerName } from '../src/api.js';
+import { parseLog, looksLikeLog, pdfUrl, grab } from '../src/bridge.js';
 
 const inflate = async (u8) => new Uint8Array(zlib.inflateSync(Buffer.from(u8)));
 
@@ -165,6 +166,31 @@ ok('пустой файл не готов', !isReadyFile({ fileId: 'p', signId: 
 eq('нет ответов — нет файла', answerOf({ requestId: 'x', answers: [] }), null);
 eq('ФУ из профиля', managerName({ lastName: 'Щенников', firstName: 'Алексей', middleName: 'Дмитриевич' }), 'Щенников Алексей Дмитриевич');
 eq('ФУ из fullName', managerName({ data: { fullName: 'Иванов И. И.' } }), 'Иванов И. И.');
+
+/* ------------------------------------------------------------------ */
+/* Мост: список обращений, сохранённый из кабинета                     */
+
+const logText = JSON.stringify({
+  queries: [
+    { requestId: 'a', createDate: '2026-09-15T10:00:00+05:00', answers: [{ pdf: { fileId: 'f1', signId: 's1', fileSize: 500 } }] },
+    { requestId: 'b', answers: [{ pdf: { fileId: 'f2', signId: 's2', fileSize: 0 } }] },
+    { requestId: 'c', answers: [] },
+    { requestId: 'd', answers: [{ json: { fileId: 'j', signId: 's', fileSize: 5 }, pdf: { fileId: 'f4', signId: 's4', fileSize: 700 } }] },
+  ],
+});
+ok('список обращений узнаётся по виду', looksLikeLog(logText));
+ok('посторонний файл не считается списком', !looksLikeLog('%PDF-1.7 какой-то файл'));
+const fromLog = parseLog(logText);
+eq('из списка взяты только готовые', fromLog.items.map((x) => x.id), ['a', 'd']);
+eq('обращений просмотрено', fromLog.seen, 4);
+eq('адрес файла', pdfUrl(fromLog.items[0]), 'https://bff.nsis.ru/bff/insurance-history/pdf?fileId=f1&signId=s1');
+eq('обёртка data тоже разбирается', parseLog(JSON.stringify({ data: { queries: [] } })).items, []);
+ok('мусор отвергается понятно', await (async () => {
+  try { parseLog('не json'); return false; } catch (e) { return /не удалось разобрать JSON/.test(e.message); }
+})());
+const opened = [];
+eq('скачивания запускаются по одному', await grab(fromLog.items, (u) => opened.push(u), 0), 2);
+eq('открыты адреса обоих файлов', opened.length, 2);
 
 /* ------------------------------------------------------------------ */
 /* Настоящие ответы, если их передали аргументами                      */

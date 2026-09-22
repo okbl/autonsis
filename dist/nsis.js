@@ -555,6 +555,84 @@ function managerName(profile) {
 }
 
 /*
+ * Мост к НСИС со стороннего сайта.
+ *
+ * Прочитать список обращений наша страница не может: браузер запрещает читать
+ * ответы чужого адреса (CORS), и обойти это нельзя. Но переход по ссылке —
+ * не чтение: при открытии новой вкладки браузер отправляет куки сессии, и
+ * кабинет отвечает как обычно. Отсюда конструкция:
+ *
+ *   1) страница открывает список обращений во вкладке — вы его видите;
+ *   2) вы отдаёте его странице: Ctrl+S в той вкладке (файл попадёт в папку
+ *      загрузок, которую страница и так читает) или Ctrl+A, Ctrl+C и «вставить»;
+ *   3) страница достаёт из списка готовые ответы и запускает их скачивание
+ *      теми же переходами — файлы падают в папку загрузок;
+ *   4) дальше обычный путь: разбор ФИО, имена, папки по дням, журнал.
+ *
+ * Это не обход защиты: все запросы делает сам пользователь своей же сессией,
+ * ровно то же самое происходит, когда он нажимает «Скачать» в кабинете.
+ */
+
+const API = 'https://bff.nsis.ru';
+
+const LIST_URL = `${API}/bff/bff-query-log/request-log?limit=50&offset=0&sortDirection=desc`;
+
+function pdfUrl({ fileId, signId }) {
+  return `${API}/bff/insurance-history/pdf?fileId=${encodeURIComponent(fileId)}&signId=${encodeURIComponent(signId)}`;
+}
+
+/** Похоже ли содержимое файла на список обращений НСИС. */
+function looksLikeLog(text) {
+  return /"queries"\s*:/.test(String(text || ''));
+}
+
+/**
+ * Список обращений (текстом, как его отдаёт кабинет) → готовые ответы.
+ * @returns {{items: Array<{id: string, fileId: string, signId: string, createDate: string|null}>, seen: number}}
+ */
+function parseLog(text) {
+  let data;
+  try {
+    data = typeof text === 'string' ? JSON.parse(text) : text;
+  } catch {
+    throw new Error('Это не список обращений: не удалось разобрать JSON');
+  }
+  const queries = (data && (data.queries || (data.data && data.data.queries))) || [];
+  if (!Array.isArray(queries)) throw new Error('В ответе нет списка обращений');
+
+  const items = [];
+  for (const query of queries) {
+    for (const answer of query.answers || []) {
+      const pdf = answer && answer.pdf;
+      if (!pdf || !pdf.fileId || !pdf.signId || !(Number(pdf.fileSize) > 0)) continue;
+      items.push({
+        id: query.requestId,
+        fileId: pdf.fileId,
+        signId: pdf.signId,
+        createDate: query.createDate || null,
+      });
+      break;
+    }
+  }
+  return { items, seen: queries.length };
+}
+
+/**
+ * Запуск скачиваний переходами. Между ними пауза: браузер иначе считает это
+ * попыткой завалить его файлами и спрашивает разрешение на каждый.
+ * @param {(url: string) => void} open как открывать ссылку (в жизни — window.open)
+ */
+async function grab(items, open, pause = 700) {
+  let started = 0;
+  for (const item of items) {
+    open(pdfUrl(item));
+    started++;
+    if (started < items.length) await new Promise((r) => setTimeout(r, pause));
+  }
+  return started;
+}
+
+/*
  * Хранилище: журнал и файлы.
  *
  * Журнал живёт в IndexedDB домена НСИС, а его копия — файлом «журнал.json»
@@ -752,13 +830,16 @@ const Folder = {
 const Inbox = {
   ...directory('nsis-inbox'),
 
-  /** PDF из папки загрузок — только верхний уровень, без обхода вложенных. */
-  async listPdfs() {
+  /*
+   * Файлы верхнего уровня папки загрузок. Кроме PDF берём json и txt: в них
+   * пользователь сохраняет список обращений из кабинета (Ctrl+S). Недокачанные
+   * файлы браузера (.crdownload) по маске не проходят.
+   */
+  async listFiles() {
     if (!this.handle) return [];
     const files = [];
     for await (const [name, entry] of this.handle.entries()) {
-      if (entry.kind !== 'file' || !/\.pdf$/i.test(name)) continue;
-      // Недокачанные файлы браузера (.crdownload) сюда не попадают по маске.
+      if (entry.kind !== 'file' || !/\.(pdf|json|txt)$/i.test(name)) continue;
       files.push(await entry.getFile());
     }
     return files;
@@ -860,6 +941,7 @@ const Core = {
     inbox: 'none',
     news: 0,
     entries: [],
+    bridge: null, // что вышло в прошлый раз у моста: {взято, всего, когда}
   },
   listeners: new Set(),
   seen: new Set(), // файлы папки, уже опознанные в этом сеансе
@@ -991,13 +1073,23 @@ const Core = {
     this.state.busy = true;
     this.emit();
     try {
-      const files = await Inbox.listPdfs();
+      const files = await Inbox.listFiles();
       const fresh = files.filter((f) => !this.seen.has(`${f.name}:${f.size}:${f.lastModified}`));
       this.state.news = fresh.length;
       this.emit();
       for (const file of fresh) {
         this.seen.add(`${file.name}:${file.size}:${file.lastModified}`);
         try {
+          // Сохранённый список обращений — не ответ, а задание: из него берём
+          // ссылки и запускаем скачивание.
+          if (!/\.pdf$/i.test(file.name)) {
+            const text = await file.text();
+            if (looksLikeLog(text)) {
+              await this.takeList(text);
+              if (this.settings.moveFromInbox) await Inbox.remove(file.name);
+            }
+            continue;
+          }
           const bytes = new Uint8Array(await file.arrayBuffer());
           const result = await this.intake(bytes, { source: file.name, requestId: idFromName(file.name) });
           if (this.settings.moveFromInbox && result !== 'error') await Inbox.remove(file.name);
@@ -1045,6 +1137,63 @@ const Core = {
     }
   },
 
+  /* ---------------- мост: список из кабинета ---------------- */
+
+  openList() {
+    window.open(LIST_URL, '_blank', 'noopener');
+  },
+
+  /**
+   * Список обращений (сохранённый файлом или вставленный из буфера) →
+   * скачивание готовых ответов переходами.
+   */
+  async takeList(text) {
+    let parsed;
+    try {
+      parsed = parseLog(text);
+    } catch (e) {
+      this.state.bridge = { error: (e && e.message) || String(e), when: new Date().toISOString() };
+      this.emit();
+      return this.state.bridge;
+    }
+
+    // Уже разложенные ответы второй раз не качаем.
+    const fresh = [];
+    for (const item of parsed.items) {
+      const known = await Store.get(item.id);
+      if (!known || known.status === 'error') fresh.push(item);
+    }
+
+    const started = await grab(fresh, (url) => window.open(url, '_blank', 'noopener'));
+    this.state.bridge = {
+      seen: parsed.seen,
+      ready: parsed.items.length,
+      started,
+      when: new Date().toISOString(),
+    };
+    this.emit();
+    return this.state.bridge;
+  },
+
+  async pasteList() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text || !looksLikeLog(text)) {
+        this.state.bridge = {
+          error: 'В буфере обмена не список обращений. Откройте список кнопкой рядом, нажмите Ctrl+A и Ctrl+C.',
+          when: new Date().toISOString(),
+        };
+        this.emit();
+        return this.state.bridge;
+      }
+      return this.takeList(text);
+    } catch (e) {
+      this.state.bridge = { error: 'Браузер не дал прочитать буфер обмена: ' + ((e && e.message) || e), when: new Date().toISOString() };
+      this.emit();
+      return this.state.bridge;
+    }
+  },
+
   /* ---------------- источник: НСИС ---------------- */
 
   /** Доступен ли кабинет с этого адреса. Со страницы вне НСИС — нет. */
@@ -1054,7 +1203,14 @@ const Core = {
       this.state.manager = managerName(profile) || this.state.manager;
       this.state.nsis = 'ok';
     } catch (e) {
-      this.state.nsis = e.code === 'session' ? 'session' : this.state.mode === 'panel' ? 'down' : 'blocked';
+      /*
+       * Разница важная: если кабинет успел ответить кодом (401, 403, 500), то
+       * чтение чужого адреса браузер разрешил, и делу мешает только вход. Если
+       * же запрос не состоялся вовсе — это тот самый запрет на чтение, и тогда
+       * работает мост.
+       */
+      if (e.code === 'session' || e.status) this.state.nsis = e.code === 'session' ? 'session' : 'down';
+      else this.state.nsis = this.state.mode === 'panel' ? 'down' : 'blocked';
     }
     this.emit();
     return this.state.nsis;
@@ -1676,6 +1832,8 @@ const UI = {
       folder: () => (Core.state.folder === 'denied' ? Core.grant('folder') : Core.pick('folder')),
       inbox: () => (Core.state.inbox === 'denied' ? Core.grant('inbox') : Core.pick('inbox')),
       diag: () => this.showDiag(),
+      list: () => Core.openList(),
+      paste: () => Core.pasteList(),
       cfg: () => {
         this.cfgOpen = !this.cfgOpen;
         this.render();
@@ -1841,8 +1999,29 @@ const UI = {
       );
     }
     if (this.mode === 'page' && s.nsis === 'blocked') {
+      const b = s.bridge;
+      const result = !b
+        ? ''
+        : b.error
+        ? `<div class="sub" style="margin-top:8px;color:var(--brick)">${esc(b.error)}</div>`
+        : `<div class="sub" style="margin-top:8px">Обращений в списке: ${b.seen}, из них с готовым ответом: ${b.ready}. Запущено скачиваний: ${b.started}.${
+            b.ready && !b.started ? ' Всё это уже разложено раньше.' : ''
+          }</div>`;
       notes.push(
-        `<div class="note calm"><b>Из этой страницы в НСИС не дотянуться</b>Так устроен браузер: сессия кабинета принадлежит его адресу, и чужой странице её не отдают. Поэтому ответы берём из папки. Чтобы они забирались автоматически, поставьте закладку — раздел «Забирать из НСИС автоматически» ниже.</div>`
+        `<div class="note calm"><b>Забрать ответы из НСИС</b>
+         Читать список кабинета с чужой страницы браузер не даёт, а открыть его вам — даёт. Поэтому так:
+         <br>1. Войдите в НСИС в соседней вкладке и нажмите «Открыть список».
+         <br>2. В открывшейся вкладке нажмите <b style="display:inline;font-weight:600">Ctrl+S</b> и сохраните файл в папку загрузок — страница подхватит его сама. Либо <b style="display:inline;font-weight:600">Ctrl+A</b>, <b style="display:inline;font-weight:600">Ctrl+C</b> и кнопка «Вставить список».
+         <br>3. Дальше всё само: скачивание, имена, папки, журнал.
+         <br><button class="btn" data-do="list">Открыть список НСИС</button>
+         <button class="btn" data-do="paste">Вставить список</button>${result}</div>`
+      );
+    }
+    if (this.mode === 'page' && (s.nsis === 'session' || s.nsis === 'down')) {
+      // Кабинет ответил кодом — значит читать его с этой страницы браузер
+      // разрешает, и всё заработает само, как только появится вход.
+      notes.push(
+        `<div class="note"><b>${s.nsis === 'session' ? 'НСИС отвечает, но вы не вошли' : 'НСИС отвечает ошибкой'}</b>Войдите в личный кабинет по УКЭП в соседней вкладке и нажмите «Проверить папку» — дальше страница будет забирать ответы сама, без всяких закладок.</div>`
       );
     }
     if (s.lastError && s.nsis !== 'session' && s.nsis !== 'blocked') {

@@ -196,13 +196,16 @@ export const Folder = {
 export const Inbox = {
   ...directory('nsis-inbox'),
 
-  /** PDF из папки загрузок — только верхний уровень, без обхода вложенных. */
-  async listPdfs() {
+  /*
+   * Файлы верхнего уровня папки загрузок. Кроме PDF берём json и txt: в них
+   * пользователь сохраняет список обращений из кабинета (Ctrl+S). Недокачанные
+   * файлы браузера (.crdownload) по маске не проходят.
+   */
+  async listFiles() {
     if (!this.handle) return [];
     const files = [];
     for await (const [name, entry] of this.handle.entries()) {
-      if (entry.kind !== 'file' || !/\.pdf$/i.test(name)) continue;
-      // Недокачанные файлы браузера (.crdownload) сюда не попадают по маске.
+      if (entry.kind !== 'file' || !/\.(pdf|json|txt)$/i.test(name)) continue;
       files.push(await entry.getFile());
     }
     return files;

@@ -153,6 +153,8 @@ export const UI = {
       folder: () => (Core.state.folder === 'denied' ? Core.grant('folder') : Core.pick('folder')),
       inbox: () => (Core.state.inbox === 'denied' ? Core.grant('inbox') : Core.pick('inbox')),
       diag: () => this.showDiag(),
+      list: () => Core.openList(),
+      paste: () => Core.pasteList(),
       cfg: () => {
         this.cfgOpen = !this.cfgOpen;
         this.render();
@@ -318,8 +320,29 @@ export const UI = {
       );
     }
     if (this.mode === 'page' && s.nsis === 'blocked') {
+      const b = s.bridge;
+      const result = !b
+        ? ''
+        : b.error
+        ? `<div class="sub" style="margin-top:8px;color:var(--brick)">${esc(b.error)}</div>`
+        : `<div class="sub" style="margin-top:8px">Обращений в списке: ${b.seen}, из них с готовым ответом: ${b.ready}. Запущено скачиваний: ${b.started}.${
+            b.ready && !b.started ? ' Всё это уже разложено раньше.' : ''
+          }</div>`;
       notes.push(
-        `<div class="note calm"><b>Из этой страницы в НСИС не дотянуться</b>Так устроен браузер: сессия кабинета принадлежит его адресу, и чужой странице её не отдают. Поэтому ответы берём из папки. Чтобы они забирались автоматически, поставьте закладку — раздел «Забирать из НСИС автоматически» ниже.</div>`
+        `<div class="note calm"><b>Забрать ответы из НСИС</b>
+         Читать список кабинета с чужой страницы браузер не даёт, а открыть его вам — даёт. Поэтому так:
+         <br>1. Войдите в НСИС в соседней вкладке и нажмите «Открыть список».
+         <br>2. В открывшейся вкладке нажмите <b style="display:inline;font-weight:600">Ctrl+S</b> и сохраните файл в папку загрузок — страница подхватит его сама. Либо <b style="display:inline;font-weight:600">Ctrl+A</b>, <b style="display:inline;font-weight:600">Ctrl+C</b> и кнопка «Вставить список».
+         <br>3. Дальше всё само: скачивание, имена, папки, журнал.
+         <br><button class="btn" data-do="list">Открыть список НСИС</button>
+         <button class="btn" data-do="paste">Вставить список</button>${result}</div>`
+      );
+    }
+    if (this.mode === 'page' && (s.nsis === 'session' || s.nsis === 'down')) {
+      // Кабинет ответил кодом — значит читать его с этой страницы браузер
+      // разрешает, и всё заработает само, как только появится вход.
+      notes.push(
+        `<div class="note"><b>${s.nsis === 'session' ? 'НСИС отвечает, но вы не вошли' : 'НСИС отвечает ошибкой'}</b>Войдите в личный кабинет по УКЭП в соседней вкладке и нажмите «Проверить папку» — дальше страница будет забирать ответы сама, без всяких закладок.</div>`
       );
     }
     if (s.lastError && s.nsis !== 'session' && s.nsis !== 'blocked') {

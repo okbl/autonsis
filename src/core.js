@@ -23,6 +23,7 @@ import { Store, Folder, Inbox, sha256, downloadBlob } from './store.js';
 import { pdfPagesText, browserInflate } from './pdftext.js';
 import { parseAnswer } from './parse.js';
 import { fileNameFor, folderForDay, withCopyIndex, asciiName } from './name.js';
+import { LIST_URL, parseLog, looksLikeLog, grab } from './bridge.js';
 
 export const HUMAN = {
   network: 'НСИС недоступна',
@@ -80,6 +81,7 @@ export const Core = {
     inbox: 'none',
     news: 0,
     entries: [],
+    bridge: null, // что вышло в прошлый раз у моста: {взято, всего, когда}
   },
   listeners: new Set(),
   seen: new Set(), // файлы папки, уже опознанные в этом сеансе
@@ -211,13 +213,23 @@ export const Core = {
     this.state.busy = true;
     this.emit();
     try {
-      const files = await Inbox.listPdfs();
+      const files = await Inbox.listFiles();
       const fresh = files.filter((f) => !this.seen.has(`${f.name}:${f.size}:${f.lastModified}`));
       this.state.news = fresh.length;
       this.emit();
       for (const file of fresh) {
         this.seen.add(`${file.name}:${file.size}:${file.lastModified}`);
         try {
+          // Сохранённый список обращений — не ответ, а задание: из него берём
+          // ссылки и запускаем скачивание.
+          if (!/\.pdf$/i.test(file.name)) {
+            const text = await file.text();
+            if (looksLikeLog(text)) {
+              await this.takeList(text);
+              if (this.settings.moveFromInbox) await Inbox.remove(file.name);
+            }
+            continue;
+          }
           const bytes = new Uint8Array(await file.arrayBuffer());
           const result = await this.intake(bytes, { source: file.name, requestId: idFromName(file.name) });
           if (this.settings.moveFromInbox && result !== 'error') await Inbox.remove(file.name);
@@ -265,6 +277,63 @@ export const Core = {
     }
   },
 
+  /* ---------------- мост: список из кабинета ---------------- */
+
+  openList() {
+    window.open(LIST_URL, '_blank', 'noopener');
+  },
+
+  /**
+   * Список обращений (сохранённый файлом или вставленный из буфера) →
+   * скачивание готовых ответов переходами.
+   */
+  async takeList(text) {
+    let parsed;
+    try {
+      parsed = parseLog(text);
+    } catch (e) {
+      this.state.bridge = { error: (e && e.message) || String(e), when: new Date().toISOString() };
+      this.emit();
+      return this.state.bridge;
+    }
+
+    // Уже разложенные ответы второй раз не качаем.
+    const fresh = [];
+    for (const item of parsed.items) {
+      const known = await Store.get(item.id);
+      if (!known || known.status === 'error') fresh.push(item);
+    }
+
+    const started = await grab(fresh, (url) => window.open(url, '_blank', 'noopener'));
+    this.state.bridge = {
+      seen: parsed.seen,
+      ready: parsed.items.length,
+      started,
+      when: new Date().toISOString(),
+    };
+    this.emit();
+    return this.state.bridge;
+  },
+
+  async pasteList() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text || !looksLikeLog(text)) {
+        this.state.bridge = {
+          error: 'В буфере обмена не список обращений. Откройте список кнопкой рядом, нажмите Ctrl+A и Ctrl+C.',
+          when: new Date().toISOString(),
+        };
+        this.emit();
+        return this.state.bridge;
+      }
+      return this.takeList(text);
+    } catch (e) {
+      this.state.bridge = { error: 'Браузер не дал прочитать буфер обмена: ' + ((e && e.message) || e), when: new Date().toISOString() };
+      this.emit();
+      return this.state.bridge;
+    }
+  },
+
   /* ---------------- источник: НСИС ---------------- */
 
   /** Доступен ли кабинет с этого адреса. Со страницы вне НСИС — нет. */
@@ -274,7 +343,14 @@ export const Core = {
       this.state.manager = managerName(profile) || this.state.manager;
       this.state.nsis = 'ok';
     } catch (e) {
-      this.state.nsis = e.code === 'session' ? 'session' : this.state.mode === 'panel' ? 'down' : 'blocked';
+      /*
+       * Разница важная: если кабинет успел ответить кодом (401, 403, 500), то
+       * чтение чужого адреса браузер разрешил, и делу мешает только вход. Если
+       * же запрос не состоялся вовсе — это тот самый запрет на чтение, и тогда
+       * работает мост.
+       */
+      if (e.code === 'session' || e.status) this.state.nsis = e.code === 'session' ? 'session' : 'down';
+      else this.state.nsis = this.state.mode === 'panel' ? 'down' : 'blocked';
     }
     this.emit();
     return this.state.nsis;
