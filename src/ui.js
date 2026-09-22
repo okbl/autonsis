@@ -11,6 +11,7 @@
  */
 
 import { Core, STATUS } from './core.js';
+import { report } from './diag.js';
 import { folderForDay } from './name.js';
 
 const CSS = `
@@ -151,6 +152,7 @@ export const UI = {
       auto: () => (Core.state.auto ? Core.stopAuto() : Core.startAuto()),
       folder: () => (Core.state.folder === 'denied' ? Core.grant('folder') : Core.pick('folder')),
       inbox: () => (Core.state.inbox === 'denied' ? Core.grant('inbox') : Core.pick('inbox')),
+      diag: () => this.showDiag(),
       cfg: () => {
         this.cfgOpen = !this.cfgOpen;
         this.render();
@@ -168,6 +170,36 @@ export const UI = {
       },
     }[action];
     if (run) Promise.resolve(run()).catch((err) => console.warn('[НСИС]', err));
+  },
+
+  /*
+   * Отчёт показываем прямо в панели и кладём в буфер: на рабочем компьютере
+   * консоль открывать неудобно, а переслать текст — просто.
+   */
+  async showDiag() {
+    const host = this.wrap.querySelector('#rows');
+    if (host) host.insertAdjacentHTML('beforebegin', '<div class="note calm" id="diag"><b>Собираем отчёт…</b></div>');
+    let text;
+    try {
+      text = await report();
+    } catch (e) {
+      text = 'Диагностика не собралась: ' + ((e && e.message) || e);
+    }
+    let copied = '';
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = ' Он уже в буфере обмена — можно вставить в переписку.';
+    } catch {
+      copied = ' Выделите текст и скопируйте вручную.';
+    }
+    const box = this.wrap.querySelector('#diag');
+    if (box) {
+      box.innerHTML =
+        `<b>Отчёт о состоянии</b>Личных данных в нём нет: строки с русскими буквами заменены на пометку о длине.${copied}` +
+        `<textarea readonly style="width:100%;height:220px;margin-top:8px;font:12px/1.45 ui-monospace,Consolas,monospace;` +
+        `border:1px solid var(--line-2);border-radius:9px;padding:8px;background:var(--surface);color:var(--ink)"></textarea>`;
+      box.querySelector('textarea').value = text;
+    }
   },
 
   onInput(e) {
@@ -317,6 +349,7 @@ export const UI = {
         ${panel ? '' : `<button class="btn" data-do="inbox">${s.inbox === 'ready' ? 'Сменить папку загрузок' : 'Папка загрузок'}</button>`}
         <button class="btn" data-do="folder">${s.folder === 'ready' ? 'Сменить папку НСИС' : 'Папка НСИС'}</button>
         <button class="btn" data-do="cfg">Настройки</button>
+        <button class="btn" data-do="diag">Диагностика</button>
       </div>
       ${this.cfgOpen ? this.cfgHtml(panel) : ''}
       <div class="filters">

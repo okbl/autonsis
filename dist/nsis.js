@@ -1360,6 +1360,124 @@ const Core = {
 };
 
 /*
+ * Диагностика: одна кнопка — и приложение рассказывает, что у него не вышло.
+ *
+ * «Не работает» без подробностей стоит нескольких писем туда-обратно, а по
+ * рабочему компьютеру отладчиком не походишь. Поэтому отчёт собирается прямо
+ * на месте: состояние, ответы кабинета и — главное — форма данных, которые он
+ * вернул. Именно по ней видно, совпадают ли наши ожидания с действительностью.
+ *
+ * Персональные данные в отчёт не попадают: строки с русскими буквами, почтой и
+ * длинными числами заменяются на пометку о длине, остаются только служебные
+ * значения вроде "done" и размеров файлов.
+ */
+
+const SAFE = /^[A-Za-z0-9_.:+-]{1,48}$/;
+
+/** Скелет значения: ключи и типы — без личных данных. */
+function shape(value, depth = 0) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) {
+    if (!value.length) return '[]';
+    return `[${shape(value[0], depth + 1)}${value.length > 1 ? `, …ещё ${value.length - 1}` : ''}]`;
+  }
+  switch (typeof value) {
+    case 'object': {
+      if (depth > 3) return '{…}';
+      const parts = Object.keys(value)
+        .slice(0, 24)
+        .map((k) => `${k}: ${shape(value[k], depth + 1)}`);
+      return `{ ${parts.join(', ')} }`;
+    }
+    case 'string':
+      if (!value) return '""';
+      return SAFE.test(value) ? JSON.stringify(value) : `"<строка, ${value.length} симв.>"`;
+    case 'number':
+    case 'boolean':
+      return String(value);
+    default:
+      return typeof value;
+  }
+}
+
+async function probe(title, fn) {
+  const started = Date.now();
+  try {
+    const value = await fn();
+    return { title, ok: true, ms: Date.now() - started, value };
+  } catch (e) {
+    return {
+      title,
+      ok: false,
+      ms: Date.now() - started,
+      code: e && e.code,
+      status: e && e.status,
+      text: String((e && e.message) || e),
+    };
+  }
+}
+
+async function report() {
+  const s = Core.state;
+  const lines = [];
+  const add = (...parts) => lines.push(parts.join(''));
+
+  add('НСИС — диагностика ', new Date().toLocaleString('ru-RU'));
+  add('адрес: ', location.origin + location.pathname);
+  add('режим: ', s.mode === 'panel' ? 'панель на странице кабинета' : 'страница-приложение');
+  add('браузер: ', (navigator.userAgent.match(/(Chrome|Chromium|Firefox|Safari)\/[\d.]+/g) || []).join(' '));
+  add('доступ к папкам (File System Access): ', typeof window.showDirectoryPicker === 'function' ? 'есть' : 'нет');
+  add('папка НСИС: ', s.folder, ', папка загрузок: ', s.inbox);
+  add('слежение: ', s.auto ? 'включено' : 'выключено', ', занят: ', String(s.busy));
+  add('состояние НСИС: ', s.nsis, s.lastError ? ` (${s.lastError})` : '');
+  add('ФУ: ', s.manager ? 'определён' : 'не определён');
+
+  const entries = await Store.all().catch(() => []);
+  const byStatus = {};
+  for (const e of entries) byStatus[e.status] = (byStatus[e.status] || 0) + 1;
+  add('записей в журнале: ', String(entries.length), ' ', JSON.stringify(byStatus));
+
+  const lastErrors = entries.filter((e) => e.status === 'error').slice(0, 3);
+  if (lastErrors.length) {
+    add('');
+    add('--- последние ошибки ---');
+    for (const e of lastErrors) {
+      add('обращение ', String(e.requestId).slice(0, 12), '…: ', e.error || '', ' (код ', e.errorCode || '—', ', попыток ', String(e.attempts || 0), ')');
+    }
+  }
+
+  add('');
+  add('--- профиль кабинета ---');
+  const profile = await probe('profile', () => Nsis.profile());
+  if (profile.ok) {
+    add('GET bff/profile → ответ получен за ', String(profile.ms), ' мс');
+    add('форма: ', shape(profile.value));
+  } else {
+    add('GET bff/profile → ошибка: ', profile.code || '—', ' ', profile.status || '', ' ', HUMAN[profile.code] || profile.text);
+  }
+
+  add('');
+  add('--- журнал обращений ---');
+  const log = await probe('log', () => Nsis.log({ limit: 3, offset: 0 }));
+  if (log.ok) {
+    const rows = (log.value && (log.value.queries || (log.value.data && log.value.data.queries))) || [];
+    add('GET bff/bff-query-log/request-log?limit=3 → ответ получен за ', String(log.ms), ' мс');
+    add('верхний уровень: ', shape(log.value, 2));
+    add('записей: ', String(rows.length), ', из них с готовым PDF (как их видит приложение): ',
+      String(rows.filter((q) => answerOf(q)).length));
+    if (rows.length) {
+      add('статусы: ', rows.map((q) => statusCodeOf(q) || '—').join(', '));
+      add('форма первой записи:');
+      add(shape(rows[0]));
+    }
+  } else {
+    add('GET bff/bff-query-log/request-log → ошибка: ', log.code || '—', ' ', log.status || '', ' ', HUMAN[log.code] || log.text);
+  }
+
+  return lines.join('\n');
+}
+
+/*
  * Интерфейс. Один и тот же код работает в двух видах:
  *   — страница-приложение (режим page): открыли адрес — это рабочее место;
  *   — панель поверх кабинета НСИС (режим panel), когда код запущен закладкой.
@@ -1509,6 +1627,7 @@ const UI = {
       auto: () => (Core.state.auto ? Core.stopAuto() : Core.startAuto()),
       folder: () => (Core.state.folder === 'denied' ? Core.grant('folder') : Core.pick('folder')),
       inbox: () => (Core.state.inbox === 'denied' ? Core.grant('inbox') : Core.pick('inbox')),
+      diag: () => this.showDiag(),
       cfg: () => {
         this.cfgOpen = !this.cfgOpen;
         this.render();
@@ -1526,6 +1645,36 @@ const UI = {
       },
     }[action];
     if (run) Promise.resolve(run()).catch((err) => console.warn('[НСИС]', err));
+  },
+
+  /*
+   * Отчёт показываем прямо в панели и кладём в буфер: на рабочем компьютере
+   * консоль открывать неудобно, а переслать текст — просто.
+   */
+  async showDiag() {
+    const host = this.wrap.querySelector('#rows');
+    if (host) host.insertAdjacentHTML('beforebegin', '<div class="note calm" id="diag"><b>Собираем отчёт…</b></div>');
+    let text;
+    try {
+      text = await report();
+    } catch (e) {
+      text = 'Диагностика не собралась: ' + ((e && e.message) || e);
+    }
+    let copied = '';
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = ' Он уже в буфере обмена — можно вставить в переписку.';
+    } catch {
+      copied = ' Выделите текст и скопируйте вручную.';
+    }
+    const box = this.wrap.querySelector('#diag');
+    if (box) {
+      box.innerHTML =
+        `<b>Отчёт о состоянии</b>Личных данных в нём нет: строки с русскими буквами заменены на пометку о длине.${copied}` +
+        `<textarea readonly style="width:100%;height:220px;margin-top:8px;font:12px/1.45 ui-monospace,Consolas,monospace;` +
+        `border:1px solid var(--line-2);border-radius:9px;padding:8px;background:var(--surface);color:var(--ink)"></textarea>`;
+      box.querySelector('textarea').value = text;
+    }
   },
 
   onInput(e) {
@@ -1675,6 +1824,7 @@ const UI = {
         ${panel ? '' : `<button class="btn" data-do="inbox">${s.inbox === 'ready' ? 'Сменить папку загрузок' : 'Папка загрузок'}</button>`}
         <button class="btn" data-do="folder">${s.folder === 'ready' ? 'Сменить папку НСИС' : 'Папка НСИС'}</button>
         <button class="btn" data-do="cfg">Настройки</button>
+        <button class="btn" data-do="diag">Диагностика</button>
       </div>
       ${this.cfgOpen ? this.cfgHtml(panel) : ''}
       <div class="filters">
