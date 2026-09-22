@@ -158,9 +158,13 @@ document.getElementById('copy').addEventListener('click', async () => {
 </html>
 `;
 
-fs.writeFileSync(path.join(root, 'dist', 'НСИС — установка.html'), page);
+// index.html — для хостинга (Pages раздаёт его как корень сайта).
+// Второй файл с человеческим именем — чтобы открывать двойным кликом локально.
+for (const name of ['index.html', 'НСИС — установка.html']) {
+  fs.writeFileSync(path.join(root, 'dist', name), page);
+}
 
 const kb = (s) => (s.length / 1024).toFixed(1) + ' КБ';
 console.log(`dist/nsis.js                 ${kb(bundle)}`);
-console.log(`dist/НСИС — установка.html   ${kb(page)}`);
+console.log(`dist/index.html               ${kb(page)}`);
 console.log(`закладка (javascript:)       ${kb(bookmarklet)}`);
