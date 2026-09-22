@@ -412,6 +412,34 @@ function fileNameFor(parsed, when = new Date(), opts = {}) {
   return `${sanitize(parts.join(' — '))}.pdf`;
 }
 
+const RU = {
+  а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',
+  н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',
+  ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya',
+};
+
+/*
+ * Имя латиницей. Нужно там, где файл отдаётся обычным скачиванием: браузер
+ * выбрасывает имя целиком, если в нём есть хоть один не-ASCII символ, и файл
+ * превращается в безымянный «download.pdf». В выбранную папку имя пишется
+ * как есть, по-русски.
+ */
+function asciiName(name) {
+  const out = String(name)
+    .replace(/[—–]/g, '-')
+    .replace(/[«»„“”"']/g, '')
+    .replace(/./gu, (ch) => {
+      const lower = ch.toLowerCase();
+      if (!RU[lower] && RU[lower] !== '') return /[\x20-\x7E]/.test(ch) ? ch : '_';
+      const t = RU[lower];
+      return ch === lower ? t : t.charAt(0).toUpperCase() + t.slice(1);
+    })
+    .replace(/_{2,}/g, '_')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return out || 'nsis.pdf';
+}
+
 /** «Файл.pdf» → «Файл (1).pdf» → «Файл (2).pdf» … */
 function withCopyIndex(name, index) {
   if (!index) return name;
@@ -804,6 +832,16 @@ const DEFAULTS = {
   moveFromInbox: true, // убирать разложенное из папки загрузок
 };
 
+/*
+ * Файл, скачанный закладкой, называется «nsis-<обращение>.pdf» — так страница
+ * узнаёт, к какому обращению он относится, и дубликаты ловятся точно, а не
+ * только по содержимому.
+ */
+function idFromName(name) {
+  const m = /^(?:nsis|нсис)-(.+)\.pdf$/i.exec(String(name || ''));
+  return m ? m[1] : null;
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -961,7 +999,7 @@ const Core = {
         this.seen.add(`${file.name}:${file.size}:${file.lastModified}`);
         try {
           const bytes = new Uint8Array(await file.arrayBuffer());
-          const result = await this.intake(bytes, { source: file.name });
+          const result = await this.intake(bytes, { source: file.name, requestId: idFromName(file.name) });
           if (this.settings.moveFromInbox && result !== 'error') await Inbox.remove(file.name);
         } catch (e) {
           console.warn('[НСИС] файл не обработан', file.name, e);
@@ -991,7 +1029,7 @@ const Core = {
       for (const file of files) {
         try {
           const bytes = new Uint8Array(await file.arrayBuffer());
-          await this.intake(bytes, { source: file.name });
+          await this.intake(bytes, { source: file.name, requestId: idFromName(file.name) });
         } catch (e) {
           console.warn('[НСИС] файл не обработан', file.name, e);
         }
@@ -1201,9 +1239,19 @@ const Core = {
     const blob = new Blob([bytes], { type: 'application/pdf' });
     let placed;
     if (this.state.folder === 'ready') {
-      placed = { ...(await Folder.write(day, name, blob, withCopyIndex)), place: 'folder' };
+      try {
+        placed = { ...(await Folder.write(day, name, blob, withCopyIndex)), place: 'folder' };
+      } catch (e) {
+        // Если файловая система не приняла имя с кириллицей — пишем латиницей,
+        // но файл не теряем.
+        if (e && (e.name === 'TypeError' || e.name === 'TypeMismatchError' || e.name === 'InvalidModificationError')) {
+          placed = { ...(await Folder.write(day, asciiName(name), blob, withCopyIndex)), place: 'folder' };
+        } else throw e;
+      }
     } else {
-      const flat = withCopyIndex(name, prev.copies || 0);
+      // Браузер отбрасывает имя с кириллицей при обычном скачивании — там
+      // только латиница, иначе файл станет безымянным «download.pdf».
+      const flat = withCopyIndex(asciiName(name), prev.copies || 0);
       downloadBlob(blob, flat);
       placed = { name: flat, place: 'downloads' };
     }

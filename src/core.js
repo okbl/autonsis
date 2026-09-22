@@ -22,7 +22,7 @@ import { Nsis, answerOf, statusCodeOf, managerName } from './api.js';
 import { Store, Folder, Inbox, sha256, downloadBlob } from './store.js';
 import { pdfPagesText, browserInflate } from './pdftext.js';
 import { parseAnswer } from './parse.js';
-import { fileNameFor, folderForDay, withCopyIndex } from './name.js';
+import { fileNameFor, folderForDay, withCopyIndex, asciiName } from './name.js';
 
 export const HUMAN = {
   network: 'НСИС недоступна',
@@ -51,6 +51,16 @@ const DEFAULTS = {
   deepPages: 4, // страниц журнала обращений за проверку (по 50)
   moveFromInbox: true, // убирать разложенное из папки загрузок
 };
+
+/*
+ * Файл, скачанный закладкой, называется «nsis-<обращение>.pdf» — так страница
+ * узнаёт, к какому обращению он относится, и дубликаты ловятся точно, а не
+ * только по содержимому.
+ */
+function idFromName(name) {
+  const m = /^(?:nsis|нсис)-(.+)\.pdf$/i.exec(String(name || ''));
+  return m ? m[1] : null;
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -209,7 +219,7 @@ export const Core = {
         this.seen.add(`${file.name}:${file.size}:${file.lastModified}`);
         try {
           const bytes = new Uint8Array(await file.arrayBuffer());
-          const result = await this.intake(bytes, { source: file.name });
+          const result = await this.intake(bytes, { source: file.name, requestId: idFromName(file.name) });
           if (this.settings.moveFromInbox && result !== 'error') await Inbox.remove(file.name);
         } catch (e) {
           console.warn('[НСИС] файл не обработан', file.name, e);
@@ -239,7 +249,7 @@ export const Core = {
       for (const file of files) {
         try {
           const bytes = new Uint8Array(await file.arrayBuffer());
-          await this.intake(bytes, { source: file.name });
+          await this.intake(bytes, { source: file.name, requestId: idFromName(file.name) });
         } catch (e) {
           console.warn('[НСИС] файл не обработан', file.name, e);
         }
@@ -449,9 +459,19 @@ export const Core = {
     const blob = new Blob([bytes], { type: 'application/pdf' });
     let placed;
     if (this.state.folder === 'ready') {
-      placed = { ...(await Folder.write(day, name, blob, withCopyIndex)), place: 'folder' };
+      try {
+        placed = { ...(await Folder.write(day, name, blob, withCopyIndex)), place: 'folder' };
+      } catch (e) {
+        // Если файловая система не приняла имя с кириллицей — пишем латиницей,
+        // но файл не теряем.
+        if (e && (e.name === 'TypeError' || e.name === 'TypeMismatchError' || e.name === 'InvalidModificationError')) {
+          placed = { ...(await Folder.write(day, asciiName(name), blob, withCopyIndex)), place: 'folder' };
+        } else throw e;
+      }
     } else {
-      const flat = withCopyIndex(name, prev.copies || 0);
+      // Браузер отбрасывает имя с кириллицей при обычном скачивании — там
+      // только латиница, иначе файл станет безымянным «download.pdf».
+      const flat = withCopyIndex(asciiName(name), prev.copies || 0);
       downloadBlob(blob, flat);
       placed = { name: flat, place: 'downloads' };
     }

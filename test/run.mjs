@@ -12,7 +12,7 @@ import fs from 'fs';
 import zlib from 'zlib';
 import { pdfPagesText } from '../src/pdftext.js';
 import { parseAnswer } from '../src/parse.js';
-import { fileNameFor, folderForDay, withCopyIndex, sanitize } from '../src/name.js';
+import { fileNameFor, folderForDay, withCopyIndex, sanitize, asciiName } from '../src/name.js';
 import { answerOf, isReadyFile, managerName } from '../src/api.js';
 
 const inflate = async (u8) => new Uint8Array(zlib.inflateSync(Buffer.from(u8)));
@@ -144,6 +144,13 @@ eq('ФИО не определено', fileNameFor({ fio: [], caseNo: null }, wh
 eq('повторная загрузка', withCopyIndex('Файл.pdf', 2), 'Файл (2).pdf');
 eq('первая загрузка без индекса', withCopyIndex('Файл.pdf', 0), 'Файл.pdf');
 eq('запрещённые символы', sanitize('А50-1/2 *"<>|:?'), 'А50-1-2 -------');
+// Браузер выбрасывает имя целиком, если в нём есть не-ASCII, — отсюда латиница.
+eq(
+  'имя латиницей для обычного скачивания',
+  asciiName('Иванов Иван Иванович — А50-26151-2025 — 20.09.2026 14-35-12.pdf'),
+  'Ivanov Ivan Ivanovich - A50-26151-2025 - 20.09.2026 14-35-12.pdf'
+);
+eq('в имени латиницей нет не-ASCII', /^[\x20-\x7E]+$/.test(asciiName('Щёлкин Пётр Юрьевич — 1.pdf')), true);
 
 /* ------------------------------------------------------------------ */
 /* Разбор ответа журнала обращений НСИС                                */

@@ -50,6 +50,34 @@ export function fileNameFor(parsed, when = new Date(), opts = {}) {
   return `${sanitize(parts.join(' — '))}.pdf`;
 }
 
+const RU = {
+  а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',
+  н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',
+  ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya',
+};
+
+/*
+ * Имя латиницей. Нужно там, где файл отдаётся обычным скачиванием: браузер
+ * выбрасывает имя целиком, если в нём есть хоть один не-ASCII символ, и файл
+ * превращается в безымянный «download.pdf». В выбранную папку имя пишется
+ * как есть, по-русски.
+ */
+export function asciiName(name) {
+  const out = String(name)
+    .replace(/[—–]/g, '-')
+    .replace(/[«»„“”"']/g, '')
+    .replace(/./gu, (ch) => {
+      const lower = ch.toLowerCase();
+      if (!RU[lower] && RU[lower] !== '') return /[\x20-\x7E]/.test(ch) ? ch : '_';
+      const t = RU[lower];
+      return ch === lower ? t : t.charAt(0).toUpperCase() + t.slice(1);
+    })
+    .replace(/_{2,}/g, '_')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return out || 'nsis.pdf';
+}
+
 /** «Файл.pdf» → «Файл (1).pdf» → «Файл (2).pdf» … */
 export function withCopyIndex(name, index) {
   if (!index) return name;

@@ -12,6 +12,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { minify } from 'terser';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const ORDER = ['pdftext.js', 'parse.js', 'name.js', 'api.js', 'store.js', 'core.js', 'diag.js', 'ui.js', 'boot.js'];
@@ -38,8 +39,23 @@ function strip(src) {
 const parts = ORDER.map((f) => flatten(fs.readFileSync(path.join(root, 'src', f), 'utf8')));
 const body = parts.join('\n');
 const bundle = `(function(){'use strict';\n${body}\n})();\n`;
-const lean = `(function(){'use strict';\n${strip(body)}\n})();`;
-const bookmarklet = 'javascript:' + encodeURIComponent(`void ${lean}`);
+
+/*
+ * Для закладки размер решает всё: браузер вправе не принять слишком длинный
+ * адрес. Поэтому её код сжимается, а читаемая версия остаётся в dist/nsis.js.
+ */
+async function bookmark(src) {
+  const out = await minify(`(function(){'use strict';\n${strip(src)}\n})();`, {
+    compress: { passes: 2 },
+    mangle: true,
+    format: { comments: false },
+  });
+  return 'javascript:' + encodeURIComponent(`void ${out.code}`);
+}
+
+const bookmarklet = await bookmark(body);
+const grabSrc = flatten(fs.readFileSync(path.join(root, 'src', 'grab.js'), 'utf8'));
+const grabmark = await bookmark(grabSrc);
 
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(root, 'dist', 'nsis.js'), bundle);
@@ -105,21 +121,29 @@ pre{display:none}
 
   <div class="drop">Можно просто перетащить PDF сюда — разберём и разложим</div>
 
-  <details class="card">
-    <summary><span class="caret"></span>Забирать из НСИС автоматически</summary>
+  <details class="card" open>
+    <summary><span class="caret"></span>Не нажимать «Скачать» вручную</summary>
     <p>Эта страница не может обращаться к НСИС: сессия кабинета принадлежит его адресу,
-    и браузер не отдаёт её чужой странице. Но тот же код умеет работать прямо на странице
-    кабинета — тогда нажимать «Скачать» не нужно вовсе: он сам находит готовые ответы,
-    забирает их и раскладывает в ту же папку, в тот же журнал.</p>
-    <p>Включите панель закладок (<code>Ctrl+Shift+B</code>) и перетащите на неё кнопку:</p>
-    <p><a class="bmk" href="${bookmarklet.replace(/"/g, '&quot;')}">НСИС — забрать ответы</a></p>
-    <p>Дальше откройте <code>lk.nsis.ru/requestLog</code>, войдите по УКЭП и нажмите закладку —
-    поверх кабинета появится такая же панель.</p>
-    <p class="small"><b>Если закладка не запускается</b> — сайт вправе такие закладки запрещать.
-    Тогда тот же код можно положить сниппетом: <code>F12</code> → <b>Sources</b> → <b>Snippets</b> →
-    <b>New snippet</b>, вставить, сохранить (<code>Ctrl+S</code>), запускать <code>Ctrl+Enter</code>.
-    Сниппет сохраняется в браузере, вставлять заново не нужно.</p>
-    <p><button class="btn" id="copy">Скопировать код для сниппета</button> <span id="done"></span></p>
+    и браузер не отдаёт её чужой странице. Зато на самой странице кабинета может работать
+    закладка. Включите панель закладок (<code>Ctrl+Shift+B</code>) и перетащите на неё:</p>
+    <p><a class="bmk" href="${grabmark.replace(/"/g, '&quot;')}">Забрать ответы НСИС</a>
+       <span class="small">&nbsp;${(grabmark.length / 1024).toFixed(1)} КБ</span></p>
+    <p>Откройте <code>lk.nsis.ru/requestLog</code>, войдите по УКЭП, нажмите закладку — она
+    скачает все готовые ответы в папку загрузок и скажет сколько. Разложит их уже эта
+    страница: имена, папки по дням, журнал. Обработанные обращения закладка запоминает и
+    второй раз не качает.</p>
+    <p class="small">Браузер может один раз спросить разрешение на скачивание нескольких
+    файлов — разрешите. Если закладка не срабатывает совсем, её запрещает политика браузера,
+    и тогда остаётся скачивать ответы в кабинете как обычно: страница всё равно их подхватит.</p>
+
+    <p class="small"><b>Вариант потяжелее:</b> та же панель, что и здесь, но прямо поверх
+    кабинета — с журналом, автопроверкой каждые 15 минут и раскладкой без участия этой
+    страницы. Весит ${(bookmarklet.length / 1024).toFixed(0)} КБ, и не всякий браузер примет такую
+    закладку.<br>
+    <a class="bmk" style="margin-top:8px" href="${bookmarklet.replace(/"/g, '&quot;')}">НСИС — панель в кабинете</a></p>
+    <p class="small">Тот же код можно положить сниппетом DevTools (<code>F12</code> →
+    <b>Sources</b> → <b>Snippets</b>), если режим разработчика не закрыт политикой:
+    <button class="btn" id="copy">Скопировать код</button> <span id="done"></span></p>
     <pre id="code"></pre>
   </details>
 
@@ -171,4 +195,5 @@ for (const name of ['index.html', 'НСИС — ответы.html']) {
 const kb = (s) => (s.length / 1024).toFixed(1) + ' КБ';
 console.log(`dist/nsis.js                 ${kb(bundle)}`);
 console.log(`dist/index.html               ${kb(page)}`);
-console.log(`закладка (javascript:)       ${kb(bookmarklet)}`);
+console.log(`закладка «забрать»           ${kb(grabmark)}`);
+console.log(`закладка «панель»            ${kb(bookmarklet)}`);
