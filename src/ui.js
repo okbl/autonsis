@@ -1,14 +1,13 @@
 /*
- * Панель поверх страницы личного кабинета.
+ * Интерфейс. Один и тот же код работает в двух видах:
+ *   — страница-приложение (режим page): открыли адрес — это рабочее место;
+ *   — панель поверх кабинета НСИС (режим panel), когда код запущен закладкой.
  *
- * Живёт в shadow-root: стили НСИС на неё не влияют, а наши — на НСИС.
- * Оформление — как в ОКБ-анализаторе: алебастровый фон, тёплый грейж
+ * Внутри — shadow-root: стили НСИС не влияют на нас, наши — на НСИС.
+ * Оформление как в ОКБ-анализаторе: алебастровый фон, тёплый грейж
  * поверхностей, угольный текст, терракота как единственный акцент, плитки,
  * табличные цифры. Цвет несёт смысл: терракота — требует внимания,
  * кирпичный — ошибка, олива — «в порядке».
- *
- * Шрифт Onest в закладку не встроить (это был бы лишний мегабайт в URL),
- * поэтому он берётся системный, если установлен, иначе Segoe UI.
  */
 
 import { Core, STATUS } from './core.js';
@@ -22,15 +21,17 @@ const CSS = `
   --ink:#2B2D31;--ink-2:#5F6165;--ink-3:#8A867F;
   --acc:#8D321F;--acc-2:#A94229;--acc-wash:#F6E7E2;--olive:#3A4027;--brick:#B25720;
   --r:16px;--r-sm:10px;
-  position:fixed;right:18px;bottom:18px;z-index:2147483600;
-  width:min(1040px,calc(100vw - 36px));max-height:calc(100vh - 36px);
   display:flex;flex-direction:column;
   background:var(--bg);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);
-  box-shadow:0 1px 2px rgba(43,45,49,.06),0 24px 60px -30px rgba(43,45,49,.5);
   font-family:Onest,"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.45;
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
 }
-.wrap.isMin{width:auto;max-width:420px}
+.wrap.isPanel{
+  position:fixed;right:18px;bottom:18px;z-index:2147483600;
+  width:min(1040px,calc(100vw - 36px));max-height:calc(100vh - 36px);
+  box-shadow:0 1px 2px rgba(43,45,49,.06),0 24px 60px -30px rgba(43,45,49,.5);
+}
+.wrap.isPanel.isMin{width:auto;max-width:420px}
 .top{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--surface);
   border-bottom:1px solid var(--line);border-radius:var(--r) var(--r) 0 0}
 .mark{width:22px;height:22px;border-radius:7px;flex:none;background:linear-gradient(135deg,#8D321F,#7D4047)}
@@ -40,6 +41,7 @@ const CSS = `
 .dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--olive)}
 .dot.warn{background:var(--acc)}
 .dot.down{background:var(--brick)}
+.dot.off{background:var(--ink-3)}
 .spacer{margin-left:auto}
 button{font:inherit;cursor:pointer}
 .btn{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:999px;
@@ -52,13 +54,15 @@ button{font:inherit;cursor:pointer}
 .body{padding:14px;overflow:auto}
 .note{background:var(--acc-wash);border:1px solid #E2C6BC;border-radius:var(--r-sm);
   padding:10px 12px;margin-bottom:12px;font-size:13px}
+.note.calm{background:var(--surface);border-color:var(--line)}
 .note b{display:block;margin-bottom:2px}
+.note .btn{margin-top:8px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
 .tile .n{font-size:26px;font-weight:600;letter-spacing:-.02em}
 .tile .l{font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
 .tile.err .n{color:var(--brick)}
-.acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 input,select{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);
   border:1px solid var(--line-2);border-radius:9px;padding:6px 9px}
@@ -70,8 +74,6 @@ th{text-align:left;font-size:11px;color:var(--ink-3);text-transform:uppercase;le
   font-weight:600;padding:0 8px 6px;border-bottom:1px solid var(--line)}
 td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
 td.nw{white-space:nowrap}
-td:first-child{min-width:180px}
-td:last-child{width:1%}
 td .cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #rows{overflow-x:auto}
 tr:hover td{background:var(--surface)}
@@ -89,6 +91,8 @@ tr:hover td{background:var(--surface)}
 .cfg label{display:block;font-size:11.5px;color:var(--ink-3);margin-bottom:4px}
 .cfg .chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink-2);margin-top:18px}
 .hint{font-size:12px;color:var(--ink-3);margin-top:8px}
+.paths{font-size:12px;color:var(--ink-3);margin-bottom:12px}
+.paths b{color:var(--ink-2);font-weight:600}
 `;
 
 const esc = (s) =>
@@ -112,11 +116,13 @@ function dateOf(iso) {
 export const UI = {
   root: null,
   shadow: null,
+  mode: 'page',
   min: false,
   cfgOpen: false,
   filters: { q: '', date: '', status: '', manager: '' },
 
-  mount() {
+  mount(mode, host) {
+    this.mode = mode || 'page';
     this.root = document.createElement('div');
     this.root.id = 'nsis-auto-panel';
     this.shadow = this.root.attachShadow({ mode: 'open' });
@@ -126,7 +132,7 @@ export const UI = {
     wrap.className = 'wrap';
     this.shadow.append(style, wrap);
     this.wrap = wrap;
-    document.body.appendChild(this.root);
+    (host || document.body).appendChild(this.root);
 
     wrap.addEventListener('click', (e) => this.onClick(e));
     wrap.addEventListener('input', (e) => this.onInput(e));
@@ -141,9 +147,10 @@ export const UI = {
     if (!btn) return;
     const { do: action, id } = btn.dataset;
     const run = {
-      check: () => Core.checkNow(),
+      check: () => Core.tick(),
       auto: () => (Core.state.auto ? Core.stopAuto() : Core.startAuto()),
-      folder: () => (Core.state.folder === 'denied' ? Core.grantFolder() : Core.pickFolder()),
+      folder: () => (Core.state.folder === 'denied' ? Core.grant('folder') : Core.pick('folder')),
+      inbox: () => (Core.state.inbox === 'denied' ? Core.grant('inbox') : Core.pick('inbox')),
       cfg: () => {
         this.cfgOpen = !this.cfgOpen;
         this.render();
@@ -153,7 +160,7 @@ export const UI = {
         this.render();
       },
       close: () => this.root.remove(),
-      again: () => Core.redownload(id),
+      again: () => Core.again(id),
       open: () => Core.openFile(Core.state.entries.find((x) => x.requestId === id)),
       path: () => {
         const entry = Core.state.entries.find((x) => x.requestId === id);
@@ -195,71 +202,123 @@ export const UI = {
     });
   },
 
+  statusLine(s) {
+    if (s.mode === 'panel') {
+      return s.nsis === 'ok'
+        ? { text: 'НСИС в порядке', dot: '' }
+        : s.nsis === 'session'
+        ? { text: 'Сессия истекла', dot: 'warn' }
+        : s.nsis === 'down'
+        ? { text: 'НСИС недоступна', dot: 'down' }
+        : { text: 'проверяем…', dot: 'off' };
+    }
+    if (s.inbox !== 'ready') return { text: 'папка загрузок не указана', dot: 'warn' };
+    return s.auto
+      ? { text: `следим за папкой загрузок`, dot: '' }
+      : { text: 'слежение остановлено', dot: 'off' };
+  },
+
   render() {
     const s = Core.state;
+    const st = this.statusLine(s);
     const c = Core.counters();
-    const status =
-      s.nsis === 'ok' ? 'НСИС в порядке' : s.nsis === 'session' ? 'Сессия истекла' : s.nsis === 'down' ? 'НСИС недоступна' : 'проверяем…';
-    const dotCls = s.nsis === 'ok' ? '' : s.nsis === 'session' ? 'warn' : 'down';
 
-    this.wrap.className = `wrap${this.min ? ' isMin' : ''}`;
+    this.wrap.className = `wrap${this.mode === 'panel' ? ' isPanel' : ' isPage'}${this.min ? ' isMin' : ''}`;
     this.wrap.innerHTML = `
       <div class="top">
-        <span class="mark"></span>
-        <span class="ttl">НСИС — ответы</span>
-        <span class="dot ${dotCls}"></span>
-        <span class="who">${esc(status)}${s.manager ? ' · <b>' + esc(s.manager) + '</b>' : ''}</span>
+        ${this.mode === 'panel' ? '<span class="mark"></span><span class="ttl">НСИС — ответы</span>' : ''}
+        <span class="dot ${st.dot}"></span>
+        <span class="who">${esc(st.text)}${s.manager ? ' · <b>' + esc(s.manager) + '</b>' : ''}</span>
         <span class="spacer"></span>
         ${this.min ? `<span class="who">${c.saved} сегодня · ${c.errors} ошибок</span>` : ''}
-        <button class="btn icon" data-do="min">${this.min ? 'Развернуть' : 'Свернуть'}</button>
-        <button class="btn icon" data-do="close">×</button>
+        ${
+          this.mode === 'panel'
+            ? `<button class="btn icon" data-do="min">${this.min ? 'Развернуть' : 'Свернуть'}</button>
+               <button class="btn icon" data-do="close">×</button>`
+            : ''
+        }
       </div>
       ${this.min ? '' : `<div class="body">${this.bodyHtml(s, c)}</div>`}
     `;
     if (!this.min) this.renderRows();
   },
 
-  bodyHtml(s, c) {
+  notesHtml(s) {
     const notes = [];
-    if (s.nsis === 'session') {
+    if (s.folder === 'unsupported') {
+      notes.push(
+        `<div class="note"><b>Запись в папку недоступна</b>Браузер или политика запрещают странице писать на диск, поэтому файлы сохраняются в «Загрузки» — уже с правильными именами, но без раскладки по дням.</div>`
+      );
+    } else {
+      const needInbox = this.mode === 'page' && s.inbox === 'none';
+      if (s.folder === 'none' && needInbox) {
+        // При первом запуске незачем пугать двумя предупреждениями подряд.
+        notes.push(
+          `<div class="note"><b>Осталось указать две папки</b>
+           <b style="display:inline;font-weight:600">Куда складывать</b> — например «Рабочий стол\\НСИС»: внутри появятся папки по дням.
+           <b style="display:inline;font-weight:600">Откуда брать</b> — папка загрузок браузера: страница будет сама забирать оттуда новые ответы.
+           <br><button class="btn" data-do="folder">Папка НСИС</button> <button class="btn" data-do="inbox">Папка загрузок</button></div>`
+        );
+      } else if (s.folder === 'none') {
+        notes.push(
+          `<div class="note"><b>Куда складывать — не указано</b>Нажмите «Папка НСИС» и выберите, например, «Рабочий стол\\НСИС». Внутри появятся папки по дням. Пока папка не выбрана, файлы падают в «Загрузки» без раскладки.<br><button class="btn" data-do="folder">Папка НСИС</button></div>`
+        );
+      }
+      if (s.folder === 'denied') {
+        notes.push(
+          `<div class="note"><b>Подтвердите доступ к папке НСИС</b>Браузер спрашивает разрешение один раз за сеанс.<br><button class="btn" data-do="folder">Подтвердить</button></div>`
+        );
+      }
+      if (needInbox && s.folder !== 'none') {
+        notes.push(
+          `<div class="note"><b>Откуда брать ответы — не указано</b>Нажмите «Папка загрузок» и укажите папку, куда браузер сохраняет файлы. Страница будет сама забирать оттуда новые PDF. Файлы можно и просто перетащить сюда.<br><button class="btn" data-do="inbox">Папка загрузок</button></div>`
+        );
+      }
+      if (this.mode === 'page' && s.inbox === 'denied') {
+        notes.push(
+          `<div class="note"><b>Подтвердите доступ к папке загрузок</b>Разрешение спрашивается один раз за сеанс браузера.<br><button class="btn" data-do="inbox">Подтвердить</button></div>`
+        );
+      }
+    }
+    if (this.mode === 'panel' && s.nsis === 'session') {
       notes.push(
         `<div class="note"><b>Сессия НСИС истекла</b>Войдите в личный кабинет по УКЭП в этой же вкладке — приложение само заметит новую сессию, определит ФУ и продолжит с того места, где остановилось.</div>`
       );
     }
-    if (s.folder === 'none') {
+    if (this.mode === 'page' && s.nsis === 'blocked') {
       notes.push(
-        `<div class="note"><b>Папка для файлов не выбрана</b>Нажмите «Выбрать папку» и укажите, например, «Рабочий стол\\НСИС». Внутри появятся папки по дням. Пока папка не выбрана, файлы будут падать в «Загрузки» без раскладки.</div>`
+        `<div class="note calm"><b>Из этой страницы в НСИС не дотянуться</b>Так устроен браузер: сессия кабинета принадлежит его адресу, и чужой странице её не отдают. Поэтому ответы берём из папки. Чтобы они забирались автоматически, поставьте закладку — раздел «Забирать из НСИС автоматически» ниже.</div>`
       );
     }
-    if (s.folder === 'denied') {
-      notes.push(
-        `<div class="note"><b>Нужно подтвердить доступ к папке</b>Браузер спрашивает разрешение один раз за сеанс — нажмите «Подтвердить папку».</div>`
-      );
+    if (s.lastError && s.nsis !== 'session' && s.nsis !== 'blocked') {
+      notes.push(`<div class="note"><b>${esc(s.lastError)}</b>Проверка повторится автоматически.</div>`);
     }
-    if (s.folder === 'unsupported') {
-      notes.push(
-        `<div class="note"><b>Запись в папку недоступна</b>Браузер или политика запрещают странице писать в папки, поэтому файлы сохраняются в «Загрузки» — уже с правильными именами, но без раскладки по дням.</div>`
-      );
-    }
-    if (s.lastError && s.nsis !== 'session') notes.push(`<div class="note"><b>${esc(s.lastError)}</b>Проверка повторится автоматически.</div>`);
+    return notes.join('');
+  },
 
+  bodyHtml(s, c) {
     const managers = [...new Set(Core.state.entries.map((e) => e.manager).filter(Boolean))];
-
+    const panel = this.mode === 'panel';
     return `
-      ${notes.join('')}
+      ${this.notesHtml(s)}
       <div class="tiles">
-        <div class="tile"><div class="n">${s.busy ? '…' : c.news}</div><div class="l">новых ответов</div></div>
-        <div class="tile"><div class="n">${c.saved}</div><div class="l">скачано сегодня</div></div>
+        <div class="tile"><div class="n">${s.busy ? '…' : c.news}</div><div class="l">${panel ? 'новых ответов' : 'в работе'}</div></div>
+        <div class="tile"><div class="n">${c.saved}</div><div class="l">разложено сегодня</div></div>
         <div class="tile ${c.errors ? 'err' : ''}"><div class="n">${c.errors}</div><div class="l">ошибок</div></div>
         <div class="tile"><div class="n">${c.skipped}</div><div class="l">пропущено</div></div>
       </div>
       <div class="acts">
-        <button class="btn pri" data-do="check" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Проверяем…' : 'Проверить сейчас'}</button>
-        <button class="btn" data-do="auto">${s.auto ? 'Остановить автопроверку' : 'Включить автопроверку'}</button>
-        <button class="btn" data-do="folder">${s.folder === 'denied' ? 'Подтвердить папку' : s.folder === 'ready' ? 'Сменить папку' : 'Выбрать папку'}</button>
+        <button class="btn pri" data-do="check" ${s.busy ? 'disabled' : ''}>${
+          s.busy ? 'Работаем…' : panel ? 'Проверить сейчас' : 'Проверить папку'
+        }</button>
+        <button class="btn" data-do="auto">${
+          s.auto ? (panel ? 'Остановить автопроверку' : 'Остановить слежение') : panel ? 'Включить автопроверку' : 'Включить слежение'
+        }</button>
+        ${panel ? '' : `<button class="btn" data-do="inbox">${s.inbox === 'ready' ? 'Сменить папку загрузок' : 'Папка загрузок'}</button>`}
+        <button class="btn" data-do="folder">${s.folder === 'ready' ? 'Сменить папку НСИС' : 'Папка НСИС'}</button>
         <button class="btn" data-do="cfg">Настройки</button>
       </div>
-      ${this.cfgOpen ? this.cfgHtml() : ''}
+      ${this.cfgOpen ? this.cfgHtml(panel) : ''}
       <div class="filters">
         <input class="q" data-filter="q" placeholder="Поиск по ФИО, делу или имени файла" value="${esc(this.filters.q)}">
         <input type="text" data-filter="date" placeholder="день: ${folderForDay(new Date())}" value="${esc(this.filters.date)}" style="width:150px">
@@ -275,21 +334,32 @@ export const UI = {
         </select>
       </div>
       <div id="rows"></div>
-      <div class="hint">Автопроверка работает, пока эта вкладка открыта${s.auto ? `, каждые ${Core.settings.intervalMin} мин` : ''}. Последняя проверка: ${
-        s.lastCheck ? esc(new Date(s.lastCheck).toLocaleTimeString('ru-RU')) : '—'
-      }.</div>
+      <div class="hint">${
+        panel
+          ? `Автопроверка работает, пока эта вкладка открыта${s.auto ? `, каждые ${Core.settings.intervalMin} мин` : ''}.`
+          : `Слежение за папкой работает, пока открыта эта страница${s.auto ? `, проверка каждые ${Core.settings.watchSec} с` : ''}.`
+      } Последняя проверка: ${s.lastCheck ? esc(new Date(s.lastCheck).toLocaleTimeString('ru-RU')) : '—'}.</div>
     `;
   },
 
-  cfgHtml() {
+  cfgHtml(panel) {
     const s = Core.settings;
     return `
       <div class="cfg">
-        <div><label>Интервал автопроверки, мин</label><input type="number" min="1" max="600" data-cfg="intervalMin" value="${s.intervalMin}"></div>
-        <div><label>Параллельных загрузок</label><input type="number" min="1" max="8" data-cfg="concurrency" value="${s.concurrency}"></div>
+        ${
+          panel
+            ? `<div><label>Интервал автопроверки, мин</label><input type="number" min="1" max="600" data-cfg="intervalMin" value="${s.intervalMin}"></div>
+               <div><label>Параллельных загрузок</label><input type="number" min="1" max="8" data-cfg="concurrency" value="${s.concurrency}"></div>
+               <div><label>Страниц журнала за проверку</label><input type="number" min="1" max="20" data-cfg="deepPages" value="${s.deepPages}"></div>`
+            : `<div><label>Проверять папку раз в, секунд</label><input type="number" min="3" max="600" data-cfg="watchSec" value="${s.watchSec}"></div>`
+        }
         <div><label>Повторов при ошибке</label><input type="number" min="1" max="10" data-cfg="retries" value="${s.retries}"></div>
-        <div><label>Страниц журнала за проверку</label><input type="number" min="1" max="20" data-cfg="deepPages" value="${s.deepPages}"></div>
         <label class="chk"><input type="checkbox" data-cfg="withCase" ${s.withCase ? 'checked' : ''}> номер дела в имени файла</label>
+        ${
+          panel
+            ? ''
+            : `<label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${s.moveFromInbox ? 'checked' : ''}> убирать разложенное из папки загрузок</label>`
+        }
       </div>
     `;
   },
@@ -299,14 +369,18 @@ export const UI = {
     if (!host) return;
     const rows = this.rows();
     if (!rows.length) {
-      host.innerHTML = `<div class="empty">Пока ничего нет. Нажмите «Проверить сейчас» — приложение пройдёт журнал обращений и заберёт готовые ответы.</div>`;
+      host.innerHTML = `<div class="empty">${
+        this.mode === 'panel'
+          ? 'Пока ничего нет. Нажмите «Проверить сейчас» — приложение пройдёт журнал обращений и заберёт готовые ответы.'
+          : 'Пока ничего нет. Скачайте ответы в НСИС как обычно или перетащите PDF на эту страницу.'
+      }</div>`;
       return;
     }
     host.innerHTML = `
       <table>
         <colgroup>
-          <col><col style="width:126px"><col style="width:94px"><col style="width:208px">
-          <col style="width:112px"><col style="width:118px"><col style="width:142px">
+          <col><col style="width:126px"><col style="width:94px"><col style="width:190px">
+          <col style="width:132px"><col style="width:118px"><col style="width:142px">
         </colgroup>
         <thead><tr>
           <th>Должник</th><th>Дело</th><th>Ответ</th><th>Файл</th><th>ФУ</th><th>Статус</th><th></th>
@@ -339,7 +413,7 @@ export const UI = {
         <td><div class="rowacts">
           ${e.fileName && e.place === 'folder' && Core.state.folder === 'ready' ? `<button class="btn icon" data-do="open" data-id="${esc(e.requestId)}">Открыть</button>` : ''}
           ${e.path ? `<button class="btn icon" data-do="path" data-id="${esc(e.requestId)}" title="Скопировать путь к файлу">Путь</button>` : ''}
-          <button class="btn icon" data-do="again" data-id="${esc(e.requestId)}" title="Скачать повторно — создаст новый файл рядом">Ещё раз</button>
+          <button class="btn icon" data-do="again" data-id="${esc(e.requestId)}" title="Сделать ещё одну копию файла">Ещё раз</button>
         </div></td>
       </tr>`;
   },

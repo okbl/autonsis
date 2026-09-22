@@ -540,6 +540,7 @@ function managerName(profile) {
  */
 
 const DB_NAME = 'nsis-auto';
+const JOURNAL = 'журнал.json';
 const DB_VERSION = 1;
 
 function open() {
@@ -625,36 +626,45 @@ async function sha256(bytes) {
     .join('');
 }
 
+/*
+ * Две папки: куда складываем (папка НСИС) и откуда берём (папка загрузок).
+ * Устроены одинаково, поэтому общая заготовка.
+ */
+function directory(pickerId) {
+  return {
+    handle: null,
+
+    supported() {
+      return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
+    },
+
+    /** Восстановить папку из прошлого сеанса. Без клика разрешение не вернуть. */
+    async restore(saved) {
+      if (!saved || typeof saved.queryPermission !== 'function') return null;
+      this.handle = saved;
+      try {
+        const state = await saved.queryPermission({ mode: 'readwrite' });
+        return state === 'granted' ? saved : null;
+      } catch {
+        return null;
+      }
+    },
+
+    async pick() {
+      this.handle = await window.showDirectoryPicker({ mode: 'readwrite', id: pickerId });
+      return this.handle;
+    },
+
+    async grant() {
+      if (!this.handle) return false;
+      if ((await this.handle.queryPermission({ mode: 'readwrite' })) === 'granted') return true;
+      return (await this.handle.requestPermission({ mode: 'readwrite' })) === 'granted';
+    },
+  };
+}
+
 const Folder = {
-  handle: null,
-
-  supported() {
-    return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
-  },
-
-  /** Восстановить папку из прошлого сеанса. Без клика разрешение не вернуть. */
-  async restore(saved) {
-    if (!saved || typeof saved.queryPermission !== 'function') return null;
-    this.handle = saved;
-    try {
-      const state = await saved.queryPermission({ mode: 'readwrite' });
-      return state === 'granted' ? saved : null;
-    } catch {
-      return null;
-    }
-  },
-
-  async pick() {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'nsis-root' });
-    this.handle = handle;
-    return handle;
-  },
-
-  async grant() {
-    if (!this.handle) return false;
-    if ((await this.handle.queryPermission({ mode: 'readwrite' })) === 'granted') return true;
-    return (await this.handle.requestPermission({ mode: 'readwrite' })) === 'granted';
-  },
+  ...directory('nsis-root'),
 
   async dayDir(day) {
     if (!this.handle) throw new Error('папка не выбрана');
@@ -691,10 +701,44 @@ const Folder = {
   /** Копия журнала рядом с файлами — на случай очистки браузера. */
   async writeJournal(rows) {
     if (!this.handle) return;
-    const file = await this.handle.getFileHandle('журнал.json', { create: true });
+    const file = await this.handle.getFileHandle(JOURNAL, { create: true });
     const stream = await file.createWritable();
     await stream.write(new Blob([JSON.stringify(rows, null, 1)], { type: 'application/json' }));
     await stream.close();
+  },
+
+  /** Журнал из папки: он же связывает страницу-приложение и панель на НСИС. */
+  async readJournal() {
+    if (!this.handle) return [];
+    try {
+      const file = await this.handle.getFileHandle(JOURNAL, { create: false });
+      const text = await (await file.getFile()).text();
+      const rows = JSON.parse(text);
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  },
+};
+
+const Inbox = {
+  ...directory('nsis-inbox'),
+
+  /** PDF из папки загрузок — только верхний уровень, без обхода вложенных. */
+  async listPdfs() {
+    if (!this.handle) return [];
+    const files = [];
+    for await (const [name, entry] of this.handle.entries()) {
+      if (entry.kind !== 'file' || !/\.pdf$/i.test(name)) continue;
+      // Недокачанные файлы браузера (.crdownload) сюда не попадают по маске.
+      files.push(await entry.getFile());
+    }
+    return files;
+  },
+
+  async remove(name) {
+    if (!this.handle) return;
+    await this.handle.removeEntry(name);
   },
 };
 
@@ -713,39 +757,51 @@ function downloadBlob(blob, name) {
 }
 
 /*
- * Ядро: очередь, повторы, автопроверка, состояние.
+ * Ядро: два источника ответов, общая обработка, очередь, повторы, журнал.
  *
- * Правила, которые здесь важнее всего:
+ * Источников два, и различаются они только тем, откуда взялись байты PDF:
+ *   — папка (обычно «Загрузки»): страница сама её просматривает, а файлы
+ *     можно и просто перетащить на неё;
+ *   — НСИС: журнал обращений и скачивание запросом — доступно только когда
+ *     код выполняется на странице кабинета, потому что сессия принадлежит
+ *     ему, а не нам.
+ *
+ * Дальше путь общий: hash → дубликаты → разбор письма → имя → папка за день
+ * → запись в журнал. Правила, которые здесь важнее всего:
  *   — ошибка одного ответа не трогает остальные: она остаётся в его записи;
- *   — уже обработанное обращение второй раз не скачивается (ключ — requestId,
- *     он известен до скачивания, в отличие от hash содержимого);
- *   — hash — второй уровень: ловит тот же ответ, пришедший другим обращением;
- *   — после простоя приложение проходит журнал обращений целиком и берёт всё,
- *     чего нет у себя, поэтому неважно, сколько вкладка была закрыта.
+ *   — обращение, которое уже обработано, второй раз не скачивается (ключ
+ *     requestId известен до скачивания, в отличие от hash содержимого);
+ *   — hash — второй уровень: ловит тот же ответ, пришедший другим путём;
+ *   — после простоя приложение проходит всё заново и берёт то, чего у него
+ *     нет, поэтому неважно, сколько его не открывали.
  */
 
 const HUMAN = {
   network: 'НСИС недоступна',
+  blocked: 'НСИС доступен только со страницы кабинета',
   session: 'Сессия истекла',
   http: 'Ошибка скачивания',
   pdf: 'Ошибка скачивания',
+  read: 'Не удалось прочитать файл',
   write: 'Не удалось сохранить файл',
   no_fio: 'Не удалось определить ФИО',
 };
 
 const STATUS = {
-  saved: 'Скачано',
+  saved: 'Разложено',
   no_fio: 'ФИО не определено',
   duplicate: 'Пропущено (дубликат)',
   error: 'Ошибка',
 };
 
 const DEFAULTS = {
-  intervalMin: 15,
+  intervalMin: 15, // проверка НСИС, минуты
+  watchSec: 10, // просмотр папки загрузок, секунды
   concurrency: 4,
   retries: 3,
   withCase: true,
-  deepPages: 4, // сколько страниц журнала обращений просматривать (по 50)
+  deepPages: 4, // страниц журнала обращений за проверку (по 50)
+  moveFromInbox: true, // убирать разложенное из папки загрузок
 };
 
 function sleep(ms) {
@@ -755,18 +811,20 @@ function sleep(ms) {
 const Core = {
   settings: { ...DEFAULTS },
   state: {
+    mode: 'page', // page (страница-приложение) | panel (панель на сайте НСИС)
     manager: null,
-    profileName: null,
-    nsis: 'unknown', // unknown | ok | session | down
+    nsis: 'unknown', // unknown | ok | session | down | blocked
     auto: true,
     busy: false,
     lastCheck: null,
     lastError: null,
-    folder: 'none', // none | ready | denied | unsupported | downloads
+    folder: 'none', // none | ready | denied | unsupported
+    inbox: 'none',
     news: 0,
     entries: [],
   },
   listeners: new Set(),
+  seen: new Set(), // файлы папки, уже опознанные в этом сеансе
 
   on(fn) {
     this.listeners.add(fn);
@@ -778,12 +836,13 @@ const Core = {
       try {
         fn(this.state);
       } catch (e) {
-        console.error('[НСИС] ошибка обновления панели', e);
+        console.error('[НСИС] ошибка обновления интерфейса', e);
       }
     }
   },
 
-  async start() {
+  async start(mode) {
+    this.state.mode = mode || 'page';
     await Store.init();
     const saved = await Store.meta('settings');
     if (saved) this.settings = { ...DEFAULTS, ...saved };
@@ -792,23 +851,30 @@ const Core = {
 
     if (!Folder.supported()) {
       this.state.folder = 'unsupported';
+      this.state.inbox = 'unsupported';
     } else {
-      const handle = await Store.meta('folder');
-      const ok = handle ? await Folder.restore(handle) : null;
-      this.state.folder = ok ? 'ready' : handle ? 'denied' : 'none';
+      this.state.folder = await this.restore(Folder, 'folder');
+      this.state.inbox = await this.restore(Inbox, 'inbox');
     }
 
     await this.reload();
+    await this.mergeFolderJournal();
     this.emit();
     if (this.state.auto) this.startAuto();
-    this.checkNow();
+    this.tick();
     return this;
+  },
+
+  async restore(target, key) {
+    const handle = await Store.meta(key);
+    if (!handle) return 'none';
+    return (await target.restore(handle)) ? 'ready' : 'denied';
   },
 
   async saveSettings(patch) {
     this.settings = { ...this.settings, ...patch };
     await Store.meta('settings', this.settings);
-    if (patch.intervalMin && this.state.auto) this.startAuto();
+    if (this.state.auto) this.startAuto();
     this.emit();
   },
 
@@ -816,7 +882,11 @@ const Core = {
     this.stopAuto(true);
     this.state.auto = true;
     Store.meta('auto', true);
-    this.timer = setInterval(() => this.checkNow(), Math.max(1, this.settings.intervalMin) * 60000);
+    const ms =
+      this.state.mode === 'panel'
+        ? Math.max(1, this.settings.intervalMin) * 60000
+        : Math.max(3, this.settings.watchSec) * 1000;
+    this.timer = setInterval(() => this.tick(), ms);
     this.emit();
   },
 
@@ -830,17 +900,30 @@ const Core = {
     }
   },
 
-  async pickFolder() {
-    const handle = await Folder.pick();
-    await Store.meta('folder', handle);
-    this.state.folder = 'ready';
-    this.emit();
+  /** Один цикл: папка и, если она нам доступна, НСИС. */
+  async tick() {
+    if (this.state.busy) return;
+    if (this.state.inbox === 'ready') await this.scanInbox();
+    if (this.state.mode === 'panel' || this.state.nsis === 'ok') await this.checkNsis();
   },
 
-  async grantFolder() {
-    const ok = await Folder.grant();
-    this.state.folder = ok ? 'ready' : 'denied';
+  async pick(which) {
+    const target = which === 'inbox' ? Inbox : Folder;
+    const handle = await target.pick(which === 'inbox' ? 'Папка загрузок' : 'Папка НСИС');
+    await Store.meta(which, handle);
+    this.state[which] = 'ready';
+    if (which === 'folder') await this.mergeFolderJournal();
     this.emit();
+    this.tick();
+  },
+
+  async grant(which) {
+    const target = which === 'inbox' ? Inbox : Folder;
+    const ok = await target.grant();
+    this.state[which] = ok ? 'ready' : 'denied';
+    if (ok && which === 'folder') await this.mergeFolderJournal();
+    this.emit();
+    if (ok) this.tick();
     return ok;
   },
 
@@ -863,29 +946,90 @@ const Core = {
     return { saved, errors, skipped, news: this.state.news };
   },
 
-  /** Журнал обращений НСИС целиком (пока страницы не кончатся). */
-  async fetchQueries() {
-    const limit = 50;
-    const all = [];
-    for (let page = 0; page < this.settings.deepPages; page++) {
-      const data = await Nsis.log({ limit, offset: page * limit });
-      // Кабинет отдаёт { queries: [...] }; на случай обёртки data — обе формы.
-      const rows = (data && (data.queries || (data.data && data.data.queries))) || [];
-      all.push(...rows);
-      if (rows.length < limit) break;
+  /* ---------------- источник: папка ---------------- */
+
+  async scanInbox() {
+    if (this.state.inbox !== 'ready' || this.state.busy) return;
+    this.state.busy = true;
+    this.emit();
+    try {
+      const files = await Inbox.listPdfs();
+      const fresh = files.filter((f) => !this.seen.has(`${f.name}:${f.size}:${f.lastModified}`));
+      this.state.news = fresh.length;
+      this.emit();
+      for (const file of fresh) {
+        this.seen.add(`${file.name}:${file.size}:${file.lastModified}`);
+        try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          const result = await this.intake(bytes, { source: file.name });
+          if (this.settings.moveFromInbox && result !== 'error') await Inbox.remove(file.name);
+        } catch (e) {
+          console.warn('[НСИС] файл не обработан', file.name, e);
+        }
+        await this.reload();
+        this.emit();
+      }
+      this.state.lastCheck = new Date().toISOString();
+    } finally {
+      this.state.busy = false;
+      this.state.news = 0;
+      this.emit();
+      await this.reload();
+      this.emit();
+      this.mirrorJournal();
     }
-    return all;
   },
 
-  async checkNow() {
+  /** Перетащенные на страницу файлы — тот же путь, минуя папку. */
+  async addFiles(list) {
+    const files = [...list].filter((f) => /\.pdf$/i.test(f.name));
+    if (!files.length) return;
+    this.state.busy = true;
+    this.state.news = files.length;
+    this.emit();
+    try {
+      for (const file of files) {
+        try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          await this.intake(bytes, { source: file.name });
+        } catch (e) {
+          console.warn('[НСИС] файл не обработан', file.name, e);
+        }
+        await this.reload();
+        this.emit();
+      }
+    } finally {
+      this.state.busy = false;
+      this.state.news = 0;
+      await this.reload();
+      this.emit();
+      this.mirrorJournal();
+    }
+  },
+
+  /* ---------------- источник: НСИС ---------------- */
+
+  /** Доступен ли кабинет с этого адреса. Со страницы вне НСИС — нет. */
+  async probeNsis() {
+    try {
+      const profile = await Nsis.profile();
+      this.state.manager = managerName(profile) || this.state.manager;
+      this.state.nsis = 'ok';
+    } catch (e) {
+      this.state.nsis = e.code === 'session' ? 'session' : this.state.mode === 'panel' ? 'down' : 'blocked';
+    }
+    this.emit();
+    return this.state.nsis;
+  },
+
+  async checkNsis() {
     if (this.state.busy) return;
     this.state.busy = true;
     this.state.lastError = null;
     this.emit();
     try {
       const profile = await Nsis.profile();
-      this.state.profileName = managerName(profile);
-      this.state.manager = this.state.profileName || this.state.manager;
+      this.state.manager = managerName(profile) || this.state.manager;
       this.state.nsis = 'ok';
       this.emit();
 
@@ -899,7 +1043,7 @@ const Core = {
         const known = await Store.get(q.requestId);
         if (!known) todo.push({ query: q, pdf });
         else if (known.status === 'error' && (known.attempts || 0) < this.settings.retries) {
-          todo.push({ query: q, pdf, retry: true });
+          todo.push({ query: q, pdf });
         }
       }
       this.state.news = todo.length;
@@ -908,10 +1052,10 @@ const Core = {
       await this.runQueue(todo);
       this.state.lastCheck = new Date().toISOString();
     } catch (e) {
-      this.state.nsis = e.code === 'session' ? 'session' : 'down';
-      this.state.lastError = HUMAN[e.code] || 'Неизвестная ошибка';
+      this.state.nsis =
+        e.code === 'session' ? 'session' : this.state.mode === 'panel' ? 'down' : 'blocked';
+      this.state.lastError = HUMAN[this.state.nsis === 'blocked' ? 'blocked' : e.code] || 'Неизвестная ошибка';
     } finally {
-      // Кнопка должна отпускаться сразу, не дожидаясь перечитывания журнала.
       this.state.busy = false;
       this.emit();
       await this.reload();
@@ -921,21 +1065,37 @@ const Core = {
     }
   },
 
+  async fetchQueries() {
+    const limit = 50;
+    const all = [];
+    for (let page = 0; page < this.settings.deepPages; page++) {
+      const data = await Nsis.log({ limit, offset: page * limit });
+      // Кабинет отдаёт { queries: [...] }; на случай обёртки data — обе формы.
+      const rows = (data && (data.queries || (data.data && data.data.queries))) || [];
+      all.push(...rows);
+      if (rows.length < limit) break;
+    }
+    return all;
+  },
+
   async runQueue(items) {
     const queue = items.slice();
-    const workers = Array.from({ length: Math.max(1, Math.min(8, this.settings.concurrency)) }, async () => {
-      while (queue.length) {
-        if (this.state.nsis === 'session') return;
-        const item = queue.shift();
-        await this.processOne(item);
-        await this.reload();
-        this.emit();
+    const workers = Array.from(
+      { length: Math.max(1, Math.min(8, this.settings.concurrency)) },
+      async () => {
+        while (queue.length) {
+          if (this.state.nsis === 'session') return;
+          await this.download(queue.shift());
+          await this.reload();
+          this.emit();
+        }
       }
-    });
+    );
     await Promise.all(workers);
   },
 
-  async processOne({ query, pdf }, force = false) {
+  /** Скачивание одного ответа НСИС с повторами. */
+  async download({ query, pdf }, force = false) {
     const requestId = query.requestId;
     const prev = (await Store.get(requestId)) || {};
     let attempts = prev.attempts || 0;
@@ -946,112 +1106,27 @@ const Core = {
       try {
         const blob = await Nsis.answerPdf(pdf);
         const bytes = new Uint8Array(await blob.arrayBuffer());
-        const hash = await sha256(bytes);
-
-        if (!force) {
-          const twin = await Store.byHash(hash);
-          if (twin && twin.requestId !== requestId) {
-            await Store.put({
-              requestId,
-              hash,
-              status: 'duplicate',
-              duplicateOf: twin.requestId,
-              fio: twin.fio || [],
-              caseNo: twin.caseNo || null,
-              manager: this.state.manager,
-              answerDate: twin.answerDate || null,
-              createDate: query.createDate || null,
-              pdfRef: pdf,
-              attempts,
-              savedAt: new Date().toISOString(),
-            });
-            return;
-          }
-        }
-
-        let parsed = { fio: [], birth: {}, caseNo: null, manager: null, answerDate: null };
-        let parseFailed = false;
-        try {
-          parsed = parseAnswer(await pdfPagesText(bytes, browserInflate, 4));
-        } catch (e) {
-          parseFailed = true;
-          console.warn('[НСИС] не удалось разобрать PDF', e);
-        }
-
-        const when = new Date();
-        const day = folderForDay(when);
-        const name = fileNameFor(parsed, when, { withCase: this.settings.withCase });
-        let placed;
-        if (this.state.folder === 'ready') {
-          placed = { ...(await Folder.write(day, name, blob, withCopyIndex)), place: 'folder' };
-        } else {
-          const flat = withCopyIndex(name, prev.copies || 0);
-          downloadBlob(blob, flat);
-          placed = { name: flat, place: 'downloads' };
-        }
-
-        await Store.put({
+        await this.intake(bytes, {
           requestId,
-          status: parsed.fio.length ? 'saved' : 'no_fio',
-          queryStatus: statusCodeOf(query) || null,
-          fio: parsed.fio,
-          birth: parsed.birth,
-          caseNo: parsed.caseNo,
-          answerDate: parsed.answerDate,
-          createDate: query.createDate || null,
-          manager: parsed.manager || this.state.manager,
-          fileName: placed.name,
-          // День всегда датой: по нему считается «скачано сегодня» и работает
-          // фильтр, даже когда файл ушёл в «Загрузки» без раскладки по папкам.
-          day,
-          place: placed.place,
-          path: `${placed.place === 'folder' ? day : 'Загрузки'}\\${placed.name}`,
-          hash,
-          size: bytes.length,
-          attempts,
-          error: parsed.fio.length ? null : parseFailed ? HUMAN.pdf : HUMAN.no_fio,
-          copies: (prev.copies || 0) + (force ? 1 : 0),
           pdfRef: pdf,
-          savedAt: new Date().toISOString(),
+          createDate: query.createDate,
+          attempts,
+          force,
         });
         return;
       } catch (e) {
         const code = e.code || 'write';
         const human = HUMAN[code] || 'Ошибка скачивания';
-        // Разрешение на папку могли отозвать — покажем это в панели.
         if (code === 'write' && this.state.folder === 'ready') this.state.folder = 'denied';
         await Store.addAttempt(requestId, human);
+        const keep = prev.status === 'saved' || prev.status === 'no_fio';
         if (code === 'session') {
           this.state.nsis = 'session';
-          const kept = prev.status === 'saved' || prev.status === 'no_fio';
-          await Store.put({
-            ...prev,
-            requestId,
-            status: kept ? prev.status : 'error',
-            error: human,
-            errorCode: code,
-            attempts,
-            pdfRef: pdf,
-            savedAt: prev.savedAt || new Date().toISOString(),
-          });
+          await this.fail(requestId, prev, { keep, human, code, attempts, pdf, query });
           return;
         }
         if (tryNo === maxTries - 1) {
-          // Файл, сохранённый раньше, остаётся сохранённым: неудачная
-          // повторная загрузка не должна стирать его из журнала.
-          const keep = prev.status === 'saved' || prev.status === 'no_fio';
-          await Store.put({
-            ...prev,
-            requestId,
-            status: keep ? prev.status : 'error',
-            error: human,
-            errorCode: code,
-            attempts,
-            pdfRef: pdf,
-            createDate: query.createDate || null,
-            manager: this.state.manager,
-            savedAt: prev.savedAt || new Date().toISOString(),
-          });
+          await this.fail(requestId, prev, { keep, human, code, attempts, pdf, query });
           return;
         }
         await sleep(Math.min(15000, 1000 * 2 ** tryNo));
@@ -1059,18 +1134,135 @@ const Core = {
     }
   },
 
-  /** «Скачать повторно» — всегда создаёт новый файл рядом. */
-  async redownload(requestId) {
+  async fail(requestId, prev, { keep, human, code, attempts, pdf, query }) {
+    // Файл, сохранённый раньше, остаётся сохранённым: неудачная повторная
+    // загрузка не должна стирать его из журнала.
+    await Store.put({
+      ...prev,
+      requestId,
+      status: keep ? prev.status : 'error',
+      error: human,
+      errorCode: code,
+      attempts,
+      pdfRef: pdf,
+      createDate: (query && query.createDate) || prev.createDate || null,
+      manager: prev.manager || this.state.manager,
+      savedAt: prev.savedAt || new Date().toISOString(),
+    });
+  },
+
+  /* ---------------- общая обработка ---------------- */
+
+  /**
+   * Байты PDF → журнал и файл на диске. Общая часть для обоих источников.
+   * @returns {'saved'|'no_fio'|'duplicate'|'error'}
+   */
+  async intake(bytes, meta = {}) {
+    const hash = await sha256(bytes);
+    const requestId = meta.requestId || `hash:${hash}`;
+    const prev = (await Store.get(requestId)) || {};
+
+    if (!meta.force) {
+      const twin = await Store.byHash(hash);
+      if (twin && twin.requestId !== requestId) {
+        await Store.put({
+          requestId,
+          hash,
+          status: 'duplicate',
+          duplicateOf: twin.requestId,
+          fio: twin.fio || [],
+          caseNo: twin.caseNo || null,
+          birth: twin.birth || {},
+          manager: twin.manager || this.state.manager,
+          answerDate: twin.answerDate || null,
+          createDate: meta.createDate || null,
+          source: meta.source || null,
+          pdfRef: meta.pdfRef || null,
+          attempts: meta.attempts || 1,
+          savedAt: new Date().toISOString(),
+        });
+        return 'duplicate';
+      }
+      if (prev.status === 'saved' || prev.status === 'no_fio') return 'duplicate';
+    }
+
+    let parsed = { fio: [], birth: {}, caseNo: null, manager: null, answerDate: null };
+    let parseFailed = false;
+    try {
+      parsed = parseAnswer(await pdfPagesText(bytes, browserInflate, 4));
+    } catch (e) {
+      parseFailed = true;
+      console.warn('[НСИС] не удалось разобрать PDF', e);
+    }
+
+    const when = new Date();
+    const day = folderForDay(when);
+    const name = fileNameFor(parsed, when, { withCase: this.settings.withCase });
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    let placed;
+    if (this.state.folder === 'ready') {
+      placed = { ...(await Folder.write(day, name, blob, withCopyIndex)), place: 'folder' };
+    } else {
+      const flat = withCopyIndex(name, prev.copies || 0);
+      downloadBlob(blob, flat);
+      placed = { name: flat, place: 'downloads' };
+    }
+
+    const status = parsed.fio.length ? 'saved' : 'no_fio';
+    await Store.put({
+      requestId,
+      status,
+      fio: parsed.fio,
+      birth: parsed.birth,
+      caseNo: parsed.caseNo,
+      answerDate: parsed.answerDate,
+      createDate: meta.createDate || prev.createDate || null,
+      manager: parsed.manager || this.state.manager,
+      fileName: placed.name,
+      // День всегда датой: по нему считается «сегодня» и работает фильтр,
+      // даже когда файл ушёл в «Загрузки» без раскладки по папкам.
+      day,
+      place: placed.place,
+      path: `${placed.place === 'folder' ? day : 'Загрузки'}\\${placed.name}`,
+      hash,
+      size: bytes.length,
+      source: meta.source || (meta.requestId ? 'НСИС' : null),
+      attempts: meta.attempts || 1,
+      error: parsed.fio.length ? null : parseFailed ? HUMAN.pdf : HUMAN.no_fio,
+      copies: (prev.copies || 0) + (meta.force ? 1 : 0),
+      pdfRef: meta.pdfRef || prev.pdfRef || null,
+      savedAt: new Date().toISOString(),
+    });
+    return status;
+  },
+
+  /** «Ещё раз» — всегда создаёт новый файл рядом. */
+  async again(requestId) {
     const entry = await Store.get(requestId);
-    if (!entry || !entry.pdfRef) return;
-    if (this.state.folder === 'denied') await this.grantFolder();
+    if (!entry) return;
+    if (this.state.folder === 'denied') await this.grant('folder');
     this.state.busy = true;
     this.emit();
     try {
-      await this.processOne({ query: { requestId, createDate: entry.createDate }, pdf: entry.pdfRef }, true);
+      if (entry.pdfRef && this.state.nsis === 'ok') {
+        await this.download(
+          { query: { requestId, createDate: entry.createDate }, pdf: entry.pdfRef },
+          true
+        );
+      } else if (entry.place === 'folder' && entry.fileName && this.state.folder === 'ready') {
+        // Из НСИС не дотянуться — делаем копию уже сохранённого файла.
+        const file = await Folder.read(entry.day, entry.fileName);
+        await this.intake(new Uint8Array(await file.arrayBuffer()), {
+          requestId,
+          createDate: entry.createDate,
+          source: entry.source,
+          force: true,
+        });
+      }
+    } catch (e) {
+      console.warn('[НСИС] повторная загрузка не удалась', e);
     } finally {
       this.state.busy = false;
-      this.emit();
       await this.reload();
       this.emit();
       this.mirrorJournal();
@@ -1086,26 +1278,81 @@ const Core = {
     return url;
   },
 
+  /* ---------------- журнал на диске ---------------- */
+
+  toRow(e) {
+    return {
+      ФИО: (e.fio || []).join(', ') || 'Не определено',
+      датаРождения: e.birth || {},
+      дело: e.caseNo || '',
+      датаОтвета: e.answerDate || '',
+      файл: e.fileName || '',
+      путь: e.path || '',
+      ФУ: e.manager || '',
+      hash: e.hash || '',
+      статус: STATUS[e.status] || e.status,
+      ошибка: e.error || '',
+      попыток: e.attempts || 0,
+      обращение: e.requestId,
+      источник: e.source || '',
+      день: e.day || '',
+      место: e.place || '',
+      сохранено: e.savedAt || '',
+    };
+  },
+
+  fromRow(r) {
+    const fio = String(r.ФИО || '').trim();
+    const byStatus = Object.entries(STATUS).find(([, v]) => v === r.статус);
+    return {
+      requestId: r.обращение,
+      status: byStatus ? byStatus[0] : 'saved',
+      fio: fio && fio !== 'Не определено' ? fio.split(',').map((s) => s.trim()) : [],
+      birth: r.датаРождения || {},
+      caseNo: r.дело || null,
+      answerDate: r.датаОтвета || null,
+      fileName: r.файл || '',
+      path: r.путь || '',
+      manager: r.ФУ || null,
+      hash: r.hash || '',
+      error: r.ошибка || null,
+      attempts: r.попыток || 0,
+      source: r.источник || null,
+      day: r.день || '',
+      place: r.место || 'folder',
+      savedAt: r.сохранено || new Date().toISOString(),
+    };
+  },
+
+  /*
+   * Журнал в браузере — кэш, источник истины — файл в папке с делами.
+   * Благодаря этому страница-приложение и панель на сайте НСИС видят одно и
+   * то же: они пишут в одну папку, хотя браузерные хранилища у них разные.
+   */
+  async mergeFolderJournal() {
+    if (this.state.folder !== 'ready') return;
+    try {
+      const rows = await Folder.readJournal();
+      let added = 0;
+      for (const row of rows) {
+        if (!row || !row.обращение) continue;
+        if (await Store.get(row.обращение)) continue;
+        await Store.put(this.fromRow(row));
+        added++;
+      }
+      if (added) {
+        await this.reload();
+        this.emit();
+      }
+    } catch (e) {
+      console.warn('[НСИС] журнал из папки прочитать не удалось', e);
+    }
+  },
+
   async mirrorJournal() {
     if (this.state.folder !== 'ready') return;
     try {
-      await Folder.writeJournal(
-        this.state.entries.map((e) => ({
-          ФИО: (e.fio || []).join(', ') || 'Не определено',
-          деньРождения: e.birth || {},
-          дело: e.caseNo || '',
-          датаОтвета: e.answerDate || '',
-          файл: e.fileName || '',
-          путь: e.path || '',
-          ФУ: e.manager || '',
-          hash: e.hash || '',
-          статус: STATUS[e.status] || e.status,
-          ошибка: e.error || '',
-          попыток: e.attempts || 0,
-          обращение: e.requestId,
-          сохранено: e.savedAt || '',
-        }))
-      );
+      await Folder.writeJournal(this.state.entries.map((e) => this.toRow(e)));
     } catch (e) {
       console.warn('[НСИС] копию журнала записать не удалось', e);
     }
@@ -1113,16 +1360,15 @@ const Core = {
 };
 
 /*
- * Панель поверх страницы личного кабинета.
+ * Интерфейс. Один и тот же код работает в двух видах:
+ *   — страница-приложение (режим page): открыли адрес — это рабочее место;
+ *   — панель поверх кабинета НСИС (режим panel), когда код запущен закладкой.
  *
- * Живёт в shadow-root: стили НСИС на неё не влияют, а наши — на НСИС.
- * Оформление — как в ОКБ-анализаторе: алебастровый фон, тёплый грейж
+ * Внутри — shadow-root: стили НСИС не влияют на нас, наши — на НСИС.
+ * Оформление как в ОКБ-анализаторе: алебастровый фон, тёплый грейж
  * поверхностей, угольный текст, терракота как единственный акцент, плитки,
  * табличные цифры. Цвет несёт смысл: терракота — требует внимания,
  * кирпичный — ошибка, олива — «в порядке».
- *
- * Шрифт Onest в закладку не встроить (это был бы лишний мегабайт в URL),
- * поэтому он берётся системный, если установлен, иначе Segoe UI.
  */
 
 const CSS = `
@@ -1133,15 +1379,17 @@ const CSS = `
   --ink:#2B2D31;--ink-2:#5F6165;--ink-3:#8A867F;
   --acc:#8D321F;--acc-2:#A94229;--acc-wash:#F6E7E2;--olive:#3A4027;--brick:#B25720;
   --r:16px;--r-sm:10px;
-  position:fixed;right:18px;bottom:18px;z-index:2147483600;
-  width:min(1040px,calc(100vw - 36px));max-height:calc(100vh - 36px);
   display:flex;flex-direction:column;
   background:var(--bg);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);
-  box-shadow:0 1px 2px rgba(43,45,49,.06),0 24px 60px -30px rgba(43,45,49,.5);
   font-family:Onest,"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.45;
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
 }
-.wrap.isMin{width:auto;max-width:420px}
+.wrap.isPanel{
+  position:fixed;right:18px;bottom:18px;z-index:2147483600;
+  width:min(1040px,calc(100vw - 36px));max-height:calc(100vh - 36px);
+  box-shadow:0 1px 2px rgba(43,45,49,.06),0 24px 60px -30px rgba(43,45,49,.5);
+}
+.wrap.isPanel.isMin{width:auto;max-width:420px}
 .top{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--surface);
   border-bottom:1px solid var(--line);border-radius:var(--r) var(--r) 0 0}
 .mark{width:22px;height:22px;border-radius:7px;flex:none;background:linear-gradient(135deg,#8D321F,#7D4047)}
@@ -1151,6 +1399,7 @@ const CSS = `
 .dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--olive)}
 .dot.warn{background:var(--acc)}
 .dot.down{background:var(--brick)}
+.dot.off{background:var(--ink-3)}
 .spacer{margin-left:auto}
 button{font:inherit;cursor:pointer}
 .btn{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:999px;
@@ -1163,13 +1412,15 @@ button{font:inherit;cursor:pointer}
 .body{padding:14px;overflow:auto}
 .note{background:var(--acc-wash);border:1px solid #E2C6BC;border-radius:var(--r-sm);
   padding:10px 12px;margin-bottom:12px;font-size:13px}
+.note.calm{background:var(--surface);border-color:var(--line)}
 .note b{display:block;margin-bottom:2px}
+.note .btn{margin-top:8px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
 .tile .n{font-size:26px;font-weight:600;letter-spacing:-.02em}
 .tile .l{font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
 .tile.err .n{color:var(--brick)}
-.acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 input,select{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);
   border:1px solid var(--line-2);border-radius:9px;padding:6px 9px}
@@ -1181,8 +1432,6 @@ th{text-align:left;font-size:11px;color:var(--ink-3);text-transform:uppercase;le
   font-weight:600;padding:0 8px 6px;border-bottom:1px solid var(--line)}
 td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
 td.nw{white-space:nowrap}
-td:first-child{min-width:180px}
-td:last-child{width:1%}
 td .cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #rows{overflow-x:auto}
 tr:hover td{background:var(--surface)}
@@ -1200,6 +1449,8 @@ tr:hover td{background:var(--surface)}
 .cfg label{display:block;font-size:11.5px;color:var(--ink-3);margin-bottom:4px}
 .cfg .chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink-2);margin-top:18px}
 .hint{font-size:12px;color:var(--ink-3);margin-top:8px}
+.paths{font-size:12px;color:var(--ink-3);margin-bottom:12px}
+.paths b{color:var(--ink-2);font-weight:600}
 `;
 
 const esc = (s) =>
@@ -1223,11 +1474,13 @@ function dateOf(iso) {
 const UI = {
   root: null,
   shadow: null,
+  mode: 'page',
   min: false,
   cfgOpen: false,
   filters: { q: '', date: '', status: '', manager: '' },
 
-  mount() {
+  mount(mode, host) {
+    this.mode = mode || 'page';
     this.root = document.createElement('div');
     this.root.id = 'nsis-auto-panel';
     this.shadow = this.root.attachShadow({ mode: 'open' });
@@ -1237,7 +1490,7 @@ const UI = {
     wrap.className = 'wrap';
     this.shadow.append(style, wrap);
     this.wrap = wrap;
-    document.body.appendChild(this.root);
+    (host || document.body).appendChild(this.root);
 
     wrap.addEventListener('click', (e) => this.onClick(e));
     wrap.addEventListener('input', (e) => this.onInput(e));
@@ -1252,9 +1505,10 @@ const UI = {
     if (!btn) return;
     const { do: action, id } = btn.dataset;
     const run = {
-      check: () => Core.checkNow(),
+      check: () => Core.tick(),
       auto: () => (Core.state.auto ? Core.stopAuto() : Core.startAuto()),
-      folder: () => (Core.state.folder === 'denied' ? Core.grantFolder() : Core.pickFolder()),
+      folder: () => (Core.state.folder === 'denied' ? Core.grant('folder') : Core.pick('folder')),
+      inbox: () => (Core.state.inbox === 'denied' ? Core.grant('inbox') : Core.pick('inbox')),
       cfg: () => {
         this.cfgOpen = !this.cfgOpen;
         this.render();
@@ -1264,7 +1518,7 @@ const UI = {
         this.render();
       },
       close: () => this.root.remove(),
-      again: () => Core.redownload(id),
+      again: () => Core.again(id),
       open: () => Core.openFile(Core.state.entries.find((x) => x.requestId === id)),
       path: () => {
         const entry = Core.state.entries.find((x) => x.requestId === id);
@@ -1306,71 +1560,123 @@ const UI = {
     });
   },
 
+  statusLine(s) {
+    if (s.mode === 'panel') {
+      return s.nsis === 'ok'
+        ? { text: 'НСИС в порядке', dot: '' }
+        : s.nsis === 'session'
+        ? { text: 'Сессия истекла', dot: 'warn' }
+        : s.nsis === 'down'
+        ? { text: 'НСИС недоступна', dot: 'down' }
+        : { text: 'проверяем…', dot: 'off' };
+    }
+    if (s.inbox !== 'ready') return { text: 'папка загрузок не указана', dot: 'warn' };
+    return s.auto
+      ? { text: `следим за папкой загрузок`, dot: '' }
+      : { text: 'слежение остановлено', dot: 'off' };
+  },
+
   render() {
     const s = Core.state;
+    const st = this.statusLine(s);
     const c = Core.counters();
-    const status =
-      s.nsis === 'ok' ? 'НСИС в порядке' : s.nsis === 'session' ? 'Сессия истекла' : s.nsis === 'down' ? 'НСИС недоступна' : 'проверяем…';
-    const dotCls = s.nsis === 'ok' ? '' : s.nsis === 'session' ? 'warn' : 'down';
 
-    this.wrap.className = `wrap${this.min ? ' isMin' : ''}`;
+    this.wrap.className = `wrap${this.mode === 'panel' ? ' isPanel' : ' isPage'}${this.min ? ' isMin' : ''}`;
     this.wrap.innerHTML = `
       <div class="top">
-        <span class="mark"></span>
-        <span class="ttl">НСИС — ответы</span>
-        <span class="dot ${dotCls}"></span>
-        <span class="who">${esc(status)}${s.manager ? ' · <b>' + esc(s.manager) + '</b>' : ''}</span>
+        ${this.mode === 'panel' ? '<span class="mark"></span><span class="ttl">НСИС — ответы</span>' : ''}
+        <span class="dot ${st.dot}"></span>
+        <span class="who">${esc(st.text)}${s.manager ? ' · <b>' + esc(s.manager) + '</b>' : ''}</span>
         <span class="spacer"></span>
         ${this.min ? `<span class="who">${c.saved} сегодня · ${c.errors} ошибок</span>` : ''}
-        <button class="btn icon" data-do="min">${this.min ? 'Развернуть' : 'Свернуть'}</button>
-        <button class="btn icon" data-do="close">×</button>
+        ${
+          this.mode === 'panel'
+            ? `<button class="btn icon" data-do="min">${this.min ? 'Развернуть' : 'Свернуть'}</button>
+               <button class="btn icon" data-do="close">×</button>`
+            : ''
+        }
       </div>
       ${this.min ? '' : `<div class="body">${this.bodyHtml(s, c)}</div>`}
     `;
     if (!this.min) this.renderRows();
   },
 
-  bodyHtml(s, c) {
+  notesHtml(s) {
     const notes = [];
-    if (s.nsis === 'session') {
+    if (s.folder === 'unsupported') {
+      notes.push(
+        `<div class="note"><b>Запись в папку недоступна</b>Браузер или политика запрещают странице писать на диск, поэтому файлы сохраняются в «Загрузки» — уже с правильными именами, но без раскладки по дням.</div>`
+      );
+    } else {
+      const needInbox = this.mode === 'page' && s.inbox === 'none';
+      if (s.folder === 'none' && needInbox) {
+        // При первом запуске незачем пугать двумя предупреждениями подряд.
+        notes.push(
+          `<div class="note"><b>Осталось указать две папки</b>
+           <b style="display:inline;font-weight:600">Куда складывать</b> — например «Рабочий стол\\НСИС»: внутри появятся папки по дням.
+           <b style="display:inline;font-weight:600">Откуда брать</b> — папка загрузок браузера: страница будет сама забирать оттуда новые ответы.
+           <br><button class="btn" data-do="folder">Папка НСИС</button> <button class="btn" data-do="inbox">Папка загрузок</button></div>`
+        );
+      } else if (s.folder === 'none') {
+        notes.push(
+          `<div class="note"><b>Куда складывать — не указано</b>Нажмите «Папка НСИС» и выберите, например, «Рабочий стол\\НСИС». Внутри появятся папки по дням. Пока папка не выбрана, файлы падают в «Загрузки» без раскладки.<br><button class="btn" data-do="folder">Папка НСИС</button></div>`
+        );
+      }
+      if (s.folder === 'denied') {
+        notes.push(
+          `<div class="note"><b>Подтвердите доступ к папке НСИС</b>Браузер спрашивает разрешение один раз за сеанс.<br><button class="btn" data-do="folder">Подтвердить</button></div>`
+        );
+      }
+      if (needInbox && s.folder !== 'none') {
+        notes.push(
+          `<div class="note"><b>Откуда брать ответы — не указано</b>Нажмите «Папка загрузок» и укажите папку, куда браузер сохраняет файлы. Страница будет сама забирать оттуда новые PDF. Файлы можно и просто перетащить сюда.<br><button class="btn" data-do="inbox">Папка загрузок</button></div>`
+        );
+      }
+      if (this.mode === 'page' && s.inbox === 'denied') {
+        notes.push(
+          `<div class="note"><b>Подтвердите доступ к папке загрузок</b>Разрешение спрашивается один раз за сеанс браузера.<br><button class="btn" data-do="inbox">Подтвердить</button></div>`
+        );
+      }
+    }
+    if (this.mode === 'panel' && s.nsis === 'session') {
       notes.push(
         `<div class="note"><b>Сессия НСИС истекла</b>Войдите в личный кабинет по УКЭП в этой же вкладке — приложение само заметит новую сессию, определит ФУ и продолжит с того места, где остановилось.</div>`
       );
     }
-    if (s.folder === 'none') {
+    if (this.mode === 'page' && s.nsis === 'blocked') {
       notes.push(
-        `<div class="note"><b>Папка для файлов не выбрана</b>Нажмите «Выбрать папку» и укажите, например, «Рабочий стол\\НСИС». Внутри появятся папки по дням. Пока папка не выбрана, файлы будут падать в «Загрузки» без раскладки.</div>`
+        `<div class="note calm"><b>Из этой страницы в НСИС не дотянуться</b>Так устроен браузер: сессия кабинета принадлежит его адресу, и чужой странице её не отдают. Поэтому ответы берём из папки. Чтобы они забирались автоматически, поставьте закладку — раздел «Забирать из НСИС автоматически» ниже.</div>`
       );
     }
-    if (s.folder === 'denied') {
-      notes.push(
-        `<div class="note"><b>Нужно подтвердить доступ к папке</b>Браузер спрашивает разрешение один раз за сеанс — нажмите «Подтвердить папку».</div>`
-      );
+    if (s.lastError && s.nsis !== 'session' && s.nsis !== 'blocked') {
+      notes.push(`<div class="note"><b>${esc(s.lastError)}</b>Проверка повторится автоматически.</div>`);
     }
-    if (s.folder === 'unsupported') {
-      notes.push(
-        `<div class="note"><b>Запись в папку недоступна</b>Браузер или политика запрещают странице писать в папки, поэтому файлы сохраняются в «Загрузки» — уже с правильными именами, но без раскладки по дням.</div>`
-      );
-    }
-    if (s.lastError && s.nsis !== 'session') notes.push(`<div class="note"><b>${esc(s.lastError)}</b>Проверка повторится автоматически.</div>`);
+    return notes.join('');
+  },
 
+  bodyHtml(s, c) {
     const managers = [...new Set(Core.state.entries.map((e) => e.manager).filter(Boolean))];
-
+    const panel = this.mode === 'panel';
     return `
-      ${notes.join('')}
+      ${this.notesHtml(s)}
       <div class="tiles">
-        <div class="tile"><div class="n">${s.busy ? '…' : c.news}</div><div class="l">новых ответов</div></div>
-        <div class="tile"><div class="n">${c.saved}</div><div class="l">скачано сегодня</div></div>
+        <div class="tile"><div class="n">${s.busy ? '…' : c.news}</div><div class="l">${panel ? 'новых ответов' : 'в работе'}</div></div>
+        <div class="tile"><div class="n">${c.saved}</div><div class="l">разложено сегодня</div></div>
         <div class="tile ${c.errors ? 'err' : ''}"><div class="n">${c.errors}</div><div class="l">ошибок</div></div>
         <div class="tile"><div class="n">${c.skipped}</div><div class="l">пропущено</div></div>
       </div>
       <div class="acts">
-        <button class="btn pri" data-do="check" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Проверяем…' : 'Проверить сейчас'}</button>
-        <button class="btn" data-do="auto">${s.auto ? 'Остановить автопроверку' : 'Включить автопроверку'}</button>
-        <button class="btn" data-do="folder">${s.folder === 'denied' ? 'Подтвердить папку' : s.folder === 'ready' ? 'Сменить папку' : 'Выбрать папку'}</button>
+        <button class="btn pri" data-do="check" ${s.busy ? 'disabled' : ''}>${
+          s.busy ? 'Работаем…' : panel ? 'Проверить сейчас' : 'Проверить папку'
+        }</button>
+        <button class="btn" data-do="auto">${
+          s.auto ? (panel ? 'Остановить автопроверку' : 'Остановить слежение') : panel ? 'Включить автопроверку' : 'Включить слежение'
+        }</button>
+        ${panel ? '' : `<button class="btn" data-do="inbox">${s.inbox === 'ready' ? 'Сменить папку загрузок' : 'Папка загрузок'}</button>`}
+        <button class="btn" data-do="folder">${s.folder === 'ready' ? 'Сменить папку НСИС' : 'Папка НСИС'}</button>
         <button class="btn" data-do="cfg">Настройки</button>
       </div>
-      ${this.cfgOpen ? this.cfgHtml() : ''}
+      ${this.cfgOpen ? this.cfgHtml(panel) : ''}
       <div class="filters">
         <input class="q" data-filter="q" placeholder="Поиск по ФИО, делу или имени файла" value="${esc(this.filters.q)}">
         <input type="text" data-filter="date" placeholder="день: ${folderForDay(new Date())}" value="${esc(this.filters.date)}" style="width:150px">
@@ -1386,21 +1692,32 @@ const UI = {
         </select>
       </div>
       <div id="rows"></div>
-      <div class="hint">Автопроверка работает, пока эта вкладка открыта${s.auto ? `, каждые ${Core.settings.intervalMin} мин` : ''}. Последняя проверка: ${
-        s.lastCheck ? esc(new Date(s.lastCheck).toLocaleTimeString('ru-RU')) : '—'
-      }.</div>
+      <div class="hint">${
+        panel
+          ? `Автопроверка работает, пока эта вкладка открыта${s.auto ? `, каждые ${Core.settings.intervalMin} мин` : ''}.`
+          : `Слежение за папкой работает, пока открыта эта страница${s.auto ? `, проверка каждые ${Core.settings.watchSec} с` : ''}.`
+      } Последняя проверка: ${s.lastCheck ? esc(new Date(s.lastCheck).toLocaleTimeString('ru-RU')) : '—'}.</div>
     `;
   },
 
-  cfgHtml() {
+  cfgHtml(panel) {
     const s = Core.settings;
     return `
       <div class="cfg">
-        <div><label>Интервал автопроверки, мин</label><input type="number" min="1" max="600" data-cfg="intervalMin" value="${s.intervalMin}"></div>
-        <div><label>Параллельных загрузок</label><input type="number" min="1" max="8" data-cfg="concurrency" value="${s.concurrency}"></div>
+        ${
+          panel
+            ? `<div><label>Интервал автопроверки, мин</label><input type="number" min="1" max="600" data-cfg="intervalMin" value="${s.intervalMin}"></div>
+               <div><label>Параллельных загрузок</label><input type="number" min="1" max="8" data-cfg="concurrency" value="${s.concurrency}"></div>
+               <div><label>Страниц журнала за проверку</label><input type="number" min="1" max="20" data-cfg="deepPages" value="${s.deepPages}"></div>`
+            : `<div><label>Проверять папку раз в, секунд</label><input type="number" min="3" max="600" data-cfg="watchSec" value="${s.watchSec}"></div>`
+        }
         <div><label>Повторов при ошибке</label><input type="number" min="1" max="10" data-cfg="retries" value="${s.retries}"></div>
-        <div><label>Страниц журнала за проверку</label><input type="number" min="1" max="20" data-cfg="deepPages" value="${s.deepPages}"></div>
         <label class="chk"><input type="checkbox" data-cfg="withCase" ${s.withCase ? 'checked' : ''}> номер дела в имени файла</label>
+        ${
+          panel
+            ? ''
+            : `<label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${s.moveFromInbox ? 'checked' : ''}> убирать разложенное из папки загрузок</label>`
+        }
       </div>
     `;
   },
@@ -1410,14 +1727,18 @@ const UI = {
     if (!host) return;
     const rows = this.rows();
     if (!rows.length) {
-      host.innerHTML = `<div class="empty">Пока ничего нет. Нажмите «Проверить сейчас» — приложение пройдёт журнал обращений и заберёт готовые ответы.</div>`;
+      host.innerHTML = `<div class="empty">${
+        this.mode === 'panel'
+          ? 'Пока ничего нет. Нажмите «Проверить сейчас» — приложение пройдёт журнал обращений и заберёт готовые ответы.'
+          : 'Пока ничего нет. Скачайте ответы в НСИС как обычно или перетащите PDF на эту страницу.'
+      }</div>`;
       return;
     }
     host.innerHTML = `
       <table>
         <colgroup>
-          <col><col style="width:126px"><col style="width:94px"><col style="width:208px">
-          <col style="width:112px"><col style="width:118px"><col style="width:142px">
+          <col><col style="width:126px"><col style="width:94px"><col style="width:190px">
+          <col style="width:132px"><col style="width:118px"><col style="width:142px">
         </colgroup>
         <thead><tr>
           <th>Должник</th><th>Дело</th><th>Ответ</th><th>Файл</th><th>ФУ</th><th>Статус</th><th></th>
@@ -1450,34 +1771,61 @@ const UI = {
         <td><div class="rowacts">
           ${e.fileName && e.place === 'folder' && Core.state.folder === 'ready' ? `<button class="btn icon" data-do="open" data-id="${esc(e.requestId)}">Открыть</button>` : ''}
           ${e.path ? `<button class="btn icon" data-do="path" data-id="${esc(e.requestId)}" title="Скопировать путь к файлу">Путь</button>` : ''}
-          <button class="btn icon" data-do="again" data-id="${esc(e.requestId)}" title="Скачать повторно — создаст новый файл рядом">Ещё раз</button>
+          <button class="btn icon" data-do="again" data-id="${esc(e.requestId)}" title="Сделать ещё одну копию файла">Ещё раз</button>
         </div></td>
       </tr>`;
   },
 };
 
 /*
- * Точка входа. Запускается на странице личного кабинета НСИС — закладкой
- * или сниппетом DevTools. Повторный запуск не плодит панели, а показывает
- * уже существующую.
+ * Точка входа. Один и тот же файл запускается в двух местах:
+ *
+ *   — на странице-приложении (в разметке есть #nsis-app) — тогда это рабочее
+ *     место: папки, журнал, разбор, раскладка;
+ *   — на странице личного кабинета НСИС, куда его приносит закладка или
+ *     сниппет DevTools, — тогда это панель поверх кабинета, которая умеет ещё
+ *     и забирать ответы сама.
+ *
+ * Повторный запуск не плодит панели.
  */
 
 (async function boot() {
-  const host = location.hostname;
-  if (!/(^|\.)nsis\.ru$/.test(host)) {
-    alert('Запускать нужно на странице личного кабинета НСИС: https://lk.nsis.ru/requestLog/');
+  const onNsis = /(^|\.)nsis\.ru$/.test(location.hostname);
+  const host = document.getElementById('nsis-app');
+  if (!onNsis && !host) {
+    alert('Эту закладку нужно нажимать на странице личного кабинета НСИС: https://lk.nsis.ru/requestLog/');
     return;
   }
+  const mode = onNsis ? 'panel' : 'page';
+
   if (window.__nsisAuto) {
-    const panel = document.getElementById('nsis-auto-panel');
-    if (panel) panel.scrollIntoView({ block: 'center' });
-    else window.__nsisAuto.ui.mount();
+    if (!document.getElementById('nsis-auto-panel')) window.__nsisAuto.ui.mount(mode, host);
     return;
   }
   window.__nsisAuto = { core: Core, ui: UI };
-  UI.mount();
+  UI.mount(mode, host);
+
+  if (mode === 'page') {
+    // Перетаскивание — путь без всяких разрешений: работает даже там, где
+    // доступ к папкам закрыт политикой.
+    const stop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    document.addEventListener('dragover', stop);
+    document.addEventListener('drop', (e) => {
+      stop(e);
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+        Core.addFiles(e.dataTransfer.files);
+      }
+    });
+  }
+
   try {
-    await Core.start();
+    await Core.start(mode);
+    // Со страницы-приложения кабинет, скорее всего, недоступен — но проверим
+    // фактом, а не предположением, и скажем честно, что вышло.
+    if (mode === 'page') await Core.probeNsis();
   } catch (e) {
     console.error('[НСИС] не удалось запустить', e);
     alert('Не удалось запустить: ' + (e && e.message ? e.message : e));

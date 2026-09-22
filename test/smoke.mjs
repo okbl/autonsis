@@ -1,14 +1,15 @@
 /*
- * Дымовой прогон собранного файла в поддельном браузере.
+ * Дымовой прогон собранного файла в поддельном браузере — оба режима.
  *
  *   node test/smoke.mjs
  *
- * Поднимаем jsdom, подставляем вместо НСИС заглушку, которая отдаёт журнал
- * обращений и собранный на месте PDF, и проверяем, что панель появилась, а
- * ответ прошёл весь путь: скачан, разобран, назван, записан в журнал.
+ * Режим панели: страница НСИС, заглушка отдаёт журнал обращений и PDF —
+ * проверяем, что ответ прошёл весь путь (скачан, разобран, назван, в журнале).
+ * Режим страницы-приложения: чужой адрес, НСИС недоступен — проверяем, что это
+ * сказано человеческим языком, а перетащенный PDF всё равно разбирается.
  *
- * Это не замена проверке на живом сайте — CSP, УКЭП и доступ к папкам
- * здесь не воспроизводятся, — но ловит поломки сборки и логики.
+ * Это не замена проверке на живом сайте — CSP, УКЭП и доступ к папкам здесь
+ * не воспроизводятся, — но ловит поломки сборки и логики.
  */
 import fs from 'fs';
 import zlib from 'zlib';
@@ -126,7 +127,7 @@ app.core.stopAuto(true);
 const entry = app.core.state.entries[0];
 ok('ответ обработан', !!entry, app.core.state);
 if (entry) {
-  ok('статус «скачано»', entry.status === 'saved', entry.status);
+  ok('статус «разложено»', entry.status === 'saved', entry.status);
   ok('ФИО из PDF', JSON.stringify(entry.fio) === JSON.stringify(['Борцов Николай Валерьевич']), entry.fio);
   ok('номер дела из PDF', entry.caseNo === 'А50-26151/2025', entry.caseNo);
   ok('ФУ определён', entry.manager === 'Щенников Алексей Дмитриевич', entry.manager);
@@ -145,18 +146,76 @@ ok('панель предупреждает про папку', shadow.includes(
 
 // повторная проверка не должна скачивать то же ещё раз
 const before = calls.filter((c) => c.includes('insurance-history/pdf')).length;
-await app.core.checkNow();
+await app.core.checkNsis();
 const after = calls.filter((c) => c.includes('insurance-history/pdf')).length;
 ok('обработанный ответ повторно не скачивается', before === after, { before, after });
 
 // сессия истекла
 global.fetch = async () => new Response('login', { status: 401 });
-await app.core.checkNow();
+await app.core.checkNsis();
 ok('истёкшая сессия распознана', app.core.state.nsis === 'session', app.core.state.nsis);
 ok(
   'панель просит войти по УКЭП',
   dom.window.document.getElementById('nsis-auto-panel').shadowRoot.innerHTML.includes('Сессия НСИС истекла')
 );
+
+/* ---------------------------------------------------------------- */
+/* Режим страницы-приложения: чужой адрес, НСИС недоступен             */
+
+app.core.stopAuto(true);
+
+// Другой ответ — иначе сработает защита от дубликатов по hash содержимого.
+const PDF2 = buildPdf([
+  'Щенников Алексей Дмитриевич',
+  'Email: test@example.com',
+  '№ Дела: А50-14022/2025',
+  '(далее – АО «НСИС») в ответ на запрос в отношении Кузнецова Анна Сергеевна сообщает',
+  'следующее.',
+  'По состоянию на 02.09.2026 в АИС страхования имеется информация',
+]);
+
+const site = new JSDOM('<!doctype html><html><body><div id="nsis-app"></div></body></html>', {
+  url: 'https://okbl.github.io/autonsis/',
+  pretendToBeVisual: true,
+});
+global.window = site.window;
+global.document = site.window.document;
+Object.defineProperty(global, 'navigator', { value: site.window.navigator, configurable: true });
+global.location = site.window.location;
+site.window.URL.createObjectURL = () => 'blob:stub';
+site.window.URL.revokeObjectURL = () => {};
+const pageDownloads = [];
+site.window.HTMLAnchorElement.prototype.click = function () {
+  pageDownloads.push(this.download);
+};
+// Браузер не пускает чужую страницу к API кабинета — так это и выглядит.
+global.fetch = async () => {
+  throw new TypeError('Failed to fetch');
+};
+
+new Function(bundle)();
+const pageApp = site.window.__nsisAuto;
+for (let i = 0; i < 60 && pageApp.core.state.nsis === 'unknown'; i++) {
+  await new Promise((r) => setTimeout(r, 50));
+}
+pageApp.core.stopAuto(true);
+
+ok('приложение смонтировано в контейнер страницы', !!site.window.document.querySelector('#nsis-app #nsis-auto-panel'));
+ok('недоступность НСИС распознана', pageApp.core.state.nsis === 'blocked', pageApp.core.state.nsis);
+const pageShadow = () => site.window.document.getElementById('nsis-auto-panel').shadowRoot.innerHTML;
+ok('сказано, почему НСИС недоступен', pageShadow().includes('не дотянуться'));
+ok('есть кнопка папки загрузок', pageShadow().includes('Папка загрузок'));
+
+// перетаскивание файла — путь без разрешений на папки
+await pageApp.core.addFiles([
+  { name: 'history_22.09.2026.pdf', arrayBuffer: async () => PDF2.buffer.slice(PDF2.byteOffset, PDF2.byteOffset + PDF2.length) },
+]);
+const dropped = pageApp.core.state.entries[0];
+ok('перетащенный PDF разобран', !!dropped && JSON.stringify(dropped.fio) === JSON.stringify(['Кузнецова Анна Сергеевна']), dropped && dropped.fio);
+ok('номер дела из перетащенного файла', dropped && dropped.caseNo === 'А50-14022/2025', dropped && dropped.caseNo);
+ok('файл отдан на сохранение', pageDownloads.length === 1, pageDownloads);
+ok('в журнале виден источник', dropped && dropped.source === 'history_22.09.2026.pdf', dropped && dropped.source);
+ok('должник показан в таблице', pageShadow().includes('Кузнецова Анна Сергеевна'));
 
 console.log(failed ? `\n${failed} проверок не прошло` : '\nвсе проверки прошли');
 process.exit(failed ? 1 : 0);

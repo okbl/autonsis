@@ -12,6 +12,7 @@
  */
 
 const DB_NAME = 'nsis-auto';
+const JOURNAL = 'журнал.json';
 const DB_VERSION = 1;
 
 function open() {
@@ -97,36 +98,45 @@ export async function sha256(bytes) {
     .join('');
 }
 
+/*
+ * Две папки: куда складываем (папка НСИС) и откуда берём (папка загрузок).
+ * Устроены одинаково, поэтому общая заготовка.
+ */
+function directory(pickerId) {
+  return {
+    handle: null,
+
+    supported() {
+      return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
+    },
+
+    /** Восстановить папку из прошлого сеанса. Без клика разрешение не вернуть. */
+    async restore(saved) {
+      if (!saved || typeof saved.queryPermission !== 'function') return null;
+      this.handle = saved;
+      try {
+        const state = await saved.queryPermission({ mode: 'readwrite' });
+        return state === 'granted' ? saved : null;
+      } catch {
+        return null;
+      }
+    },
+
+    async pick() {
+      this.handle = await window.showDirectoryPicker({ mode: 'readwrite', id: pickerId });
+      return this.handle;
+    },
+
+    async grant() {
+      if (!this.handle) return false;
+      if ((await this.handle.queryPermission({ mode: 'readwrite' })) === 'granted') return true;
+      return (await this.handle.requestPermission({ mode: 'readwrite' })) === 'granted';
+    },
+  };
+}
+
 export const Folder = {
-  handle: null,
-
-  supported() {
-    return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
-  },
-
-  /** Восстановить папку из прошлого сеанса. Без клика разрешение не вернуть. */
-  async restore(saved) {
-    if (!saved || typeof saved.queryPermission !== 'function') return null;
-    this.handle = saved;
-    try {
-      const state = await saved.queryPermission({ mode: 'readwrite' });
-      return state === 'granted' ? saved : null;
-    } catch {
-      return null;
-    }
-  },
-
-  async pick() {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'nsis-root' });
-    this.handle = handle;
-    return handle;
-  },
-
-  async grant() {
-    if (!this.handle) return false;
-    if ((await this.handle.queryPermission({ mode: 'readwrite' })) === 'granted') return true;
-    return (await this.handle.requestPermission({ mode: 'readwrite' })) === 'granted';
-  },
+  ...directory('nsis-root'),
 
   async dayDir(day) {
     if (!this.handle) throw new Error('папка не выбрана');
@@ -163,10 +173,44 @@ export const Folder = {
   /** Копия журнала рядом с файлами — на случай очистки браузера. */
   async writeJournal(rows) {
     if (!this.handle) return;
-    const file = await this.handle.getFileHandle('журнал.json', { create: true });
+    const file = await this.handle.getFileHandle(JOURNAL, { create: true });
     const stream = await file.createWritable();
     await stream.write(new Blob([JSON.stringify(rows, null, 1)], { type: 'application/json' }));
     await stream.close();
+  },
+
+  /** Журнал из папки: он же связывает страницу-приложение и панель на НСИС. */
+  async readJournal() {
+    if (!this.handle) return [];
+    try {
+      const file = await this.handle.getFileHandle(JOURNAL, { create: false });
+      const text = await (await file.getFile()).text();
+      const rows = JSON.parse(text);
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  },
+};
+
+export const Inbox = {
+  ...directory('nsis-inbox'),
+
+  /** PDF из папки загрузок — только верхний уровень, без обхода вложенных. */
+  async listPdfs() {
+    if (!this.handle) return [];
+    const files = [];
+    for await (const [name, entry] of this.handle.entries()) {
+      if (entry.kind !== 'file' || !/\.pdf$/i.test(name)) continue;
+      // Недокачанные файлы браузера (.crdownload) сюда не попадают по маске.
+      files.push(await entry.getFile());
+    }
+    return files;
+  },
+
+  async remove(name) {
+    if (!this.handle) return;
+    await this.handle.removeEntry(name);
   },
 };
 
