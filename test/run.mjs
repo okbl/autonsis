@@ -12,7 +12,7 @@ import fs from 'fs';
 import zlib from 'zlib';
 import { pdfPagesText } from '../src/pdftext.js';
 import { parseAnswer } from '../src/parse.js';
-import { fileNameFor, folderForDay, withCopyIndex, sanitize, asciiName } from '../src/name.js';
+import { fileNameFor, folderFor, folderForDay, withCopyIndex, sanitize, asciiName } from '../src/name.js';
 import { answerOf, isReadyFile, managerName } from '../src/api.js';
 import { parseLog, looksLikeLog, pdfUrl, grab } from '../src/bridge.js';
 
@@ -131,11 +131,25 @@ eq(
   fileNameFor({ fio: ['Иванов Иван Иванович'], caseNo: 'А50-26151/2025' }, when),
   'Иванов Иван Иванович — А50-26151-2025 — 20.09.2026 14-35-12.pdf'
 );
+const both = { fio: ['Иванов Иван Иванович'], caseNo: 'А50-26151/2025', manager: 'Морза Юрий Сергеевич' };
+eq('имя только по ФИО', fileNameFor(both, when, { nameBy: 'fio' }), 'Иванов Иван Иванович — 20.09.2026 14-35-12.pdf');
+eq('имя по номеру дела', fileNameFor(both, when, { nameBy: 'case' }), 'А50-26151-2025 — 20.09.2026 14-35-12.pdf');
+// Если того, чем просили называть, в ответе нет — берём второе, а не «Не определено».
 eq(
-  'имя без номера дела по настройке',
-  fileNameFor({ fio: ['Иванов Иван Иванович'], caseNo: 'А50-26151/2025' }, when, { withCase: false }),
-  'Иванов Иван Иванович — 20.09.2026 14-35-12.pdf'
+  'нет дела — называем по ФИО',
+  fileNameFor({ fio: ['Петров Пётр Петрович'], caseNo: null }, when, { nameBy: 'case' }),
+  'Петров Пётр Петрович — 20.09.2026 14-35-12.pdf'
 );
+eq('папки по дню', folderFor(both, when, { byDay: true }), ['20.09.2026']);
+eq('папки по ФУ и делу', folderFor(both, when, { byManager: true, byCase: true, byDay: false }), [
+  'Морза Юрий Сергеевич',
+  'А50-26151-2025',
+]);
+eq('папки по всему сразу', folderFor(both, when, { byManager: true, byCase: true, byDay: true }).length, 3);
+eq('без номера дела — отдельная папка', folderFor({ ...both, caseNo: null }, when, { byCase: true, byDay: false }), [
+  'Без номера дела',
+]);
+eq('без папок — корень', folderFor(both, when, { byDay: false }), []);
 eq(
   'несколько должников',
   fileNameFor({ fio: ['Борцов Николай Валерьевич', 'Борцова Любовь Андреевна'], caseNo: null }, when),

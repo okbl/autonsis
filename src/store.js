@@ -138,9 +138,12 @@ function directory(pickerId) {
 export const Folder = {
   ...directory('nsis-root'),
 
-  async dayDir(day) {
+  /** Вложенные папки создаются по цепочке: ФУ → дело → день. */
+  async dirFor(segments, create = true) {
     if (!this.handle) throw new Error('папка не выбрана');
-    return this.handle.getDirectoryHandle(day, { create: true });
+    let dir = this.handle;
+    for (const name of segments || []) dir = await dir.getDirectoryHandle(name, { create });
+    return dir;
   },
 
   async exists(dir, name) {
@@ -153,19 +156,19 @@ export const Folder = {
   },
 
   /** Запись с защитой от совпадения имён: «Файл (1).pdf», «Файл (2).pdf» … */
-  async write(day, name, blob, nameAt) {
-    const dir = await this.dayDir(day);
+  async write(segments, name, blob, nameAt) {
+    const dir = await this.dirFor(segments);
     let final = name;
     for (let i = 1; i < 100 && (await this.exists(dir, final)); i++) final = nameAt(name, i);
     const file = await dir.getFileHandle(final, { create: true });
     const stream = await file.createWritable();
     await stream.write(blob);
     await stream.close();
-    return { name: final, dir: day };
+    return { name: final, segments: segments || [] };
   },
 
-  async read(day, name) {
-    const dir = await this.handle.getDirectoryHandle(day, { create: false });
+  async read(segments, name) {
+    const dir = await this.dirFor(segments, false);
     const file = await dir.getFileHandle(name, { create: false });
     return file.getFile();
   },

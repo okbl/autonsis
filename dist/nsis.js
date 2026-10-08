@@ -398,18 +398,40 @@ function sanitize(part) {
 /**
  * Имя файла ответа.
  * @param {{fio: string[], caseNo: string|null}} parsed
- * @param {Date} when время скачивания
- * @param {{withCase?: boolean}} opts
+ * @param {Date} when время раскладки
+ * @param {{nameBy?: 'fio'|'case'|'both'}} opts чем называть файл
  */
 function fileNameFor(parsed, when = new Date(), opts = {}) {
-  const withCase = opts.withCase !== false;
+  const mode = opts.nameBy || 'both';
   const names = (parsed && parsed.fio) || [];
-  let who = names.length ? names[0] : 'Не определено';
+  const caseNo = parsed && parsed.caseNo ? sanitize(parsed.caseNo) : '';
+  let who = names.length ? names[0] : '';
   if (names.length > 1) who += ' и др.';
-  const parts = [who];
-  if (withCase && parsed && parsed.caseNo) parts.push(sanitize(parsed.caseNo));
+
+  // Если того, чем просили называть, в ответе не нашлось — берём второе,
+  // чтобы файл не превратился в безликое «Не определено».
+  const parts = [];
+  if (mode === 'case') parts.push(caseNo || who);
+  else if (mode === 'fio') parts.push(who || caseNo);
+  else parts.push(...[who, caseNo].filter(Boolean));
+  if (!parts.length || !parts[0]) parts[0] = 'Не определено';
+
   parts.push(stampFor(when));
   return `${sanitize(parts.join(' — '))}.pdf`;
+}
+
+/**
+ * Папки, в которые кладётся файл: вложенность задаётся настройками.
+ * Порядок постоянный — ФУ, дело, день, — чтобы раскладка не перемешалась,
+ * если переключить настройку в середине работы.
+ * @returns {string[]} например ['Морза Юрий Сергеевич', 'А50-26151-2025']
+ */
+function folderFor(parsed, when = new Date(), opts = {}) {
+  const out = [];
+  if (opts.byManager) out.push(sanitize((parsed && parsed.manager) || 'ФУ не определён'));
+  if (opts.byCase) out.push(sanitize((parsed && parsed.caseNo) || 'Без номера дела'));
+  if (opts.byDay !== false) out.push(folderForDay(when));
+  return out;
 }
 
 const RU = {
@@ -772,9 +794,12 @@ function directory(pickerId) {
 const Folder = {
   ...directory('nsis-root'),
 
-  async dayDir(day) {
+  /** Вложенные папки создаются по цепочке: ФУ → дело → день. */
+  async dirFor(segments, create = true) {
     if (!this.handle) throw new Error('папка не выбрана');
-    return this.handle.getDirectoryHandle(day, { create: true });
+    let dir = this.handle;
+    for (const name of segments || []) dir = await dir.getDirectoryHandle(name, { create });
+    return dir;
   },
 
   async exists(dir, name) {
@@ -787,19 +812,19 @@ const Folder = {
   },
 
   /** Запись с защитой от совпадения имён: «Файл (1).pdf», «Файл (2).pdf» … */
-  async write(day, name, blob, nameAt) {
-    const dir = await this.dayDir(day);
+  async write(segments, name, blob, nameAt) {
+    const dir = await this.dirFor(segments);
     let final = name;
     for (let i = 1; i < 100 && (await this.exists(dir, final)); i++) final = nameAt(name, i);
     const file = await dir.getFileHandle(final, { create: true });
     const stream = await file.createWritable();
     await stream.write(blob);
     await stream.close();
-    return { name: final, dir: day };
+    return { name: final, segments: segments || [] };
   },
 
-  async read(day, name) {
-    const dir = await this.handle.getDirectoryHandle(day, { create: false });
+  async read(segments, name) {
+    const dir = await this.dirFor(segments, false);
     const file = await dir.getFileHandle(name, { create: false });
     return file.getFile();
   },
@@ -916,7 +941,10 @@ const DEFAULTS = {
   watchSec: 10, // просмотр папки загрузок, секунды
   concurrency: 4,
   retries: 3,
-  withCase: true,
+  nameBy: 'both', // чем называть файл: fio | case | both
+  byManager: false, // раскладывать по папкам ФУ
+  byCase: false, // … и по номеру дела
+  byDay: true, // … и по дню
   deepPages: 4, // страниц журнала обращений за проверку (по 50)
   moveFromInbox: true, // убирать разложенное из папки загрузок
 };
@@ -1399,17 +1427,20 @@ const Core = {
 
     const when = new Date();
     const day = folderForDay(when);
-    const name = fileNameFor(parsed, when, { withCase: this.settings.withCase });
+    // ФУ в ответе указан не всегда — тогда берём того, кто сейчас работает.
+    const forName = { ...parsed, manager: parsed.manager || this.state.manager };
+    const name = fileNameFor(forName, when, { nameBy: this.settings.nameBy });
+    const segments = folderFor(forName, when, this.settings);
     const blob = new Blob([bytes], { type: 'application/pdf' });
     let placed;
     if (this.state.folder === 'ready') {
       try {
-        placed = { ...(await Folder.write(day, name, blob, withCopyIndex)), place: 'folder' };
+        placed = { ...(await Folder.write(segments, name, blob, withCopyIndex)), place: 'folder' };
       } catch (e) {
         // Если файловая система не приняла имя с кириллицей — пишем латиницей,
         // но файл не теряем.
         if (e && (e.name === 'TypeError' || e.name === 'TypeMismatchError' || e.name === 'InvalidModificationError')) {
-          placed = { ...(await Folder.write(day, asciiName(name), blob, withCopyIndex)), place: 'folder' };
+          placed = { ...(await Folder.write(segments, asciiName(name), blob, withCopyIndex)), place: 'folder' };
         } else throw e;
       }
     } else {
@@ -1431,11 +1462,11 @@ const Core = {
       createDate: meta.createDate || prev.createDate || null,
       manager: parsed.manager || this.state.manager,
       fileName: placed.name,
-      // День всегда датой: по нему считается «сегодня» и работает фильтр,
-      // даже когда файл ушёл в «Загрузки» без раскладки по папкам.
+      // День хранится всегда датой: по нему считается «разложено сегодня» и
+      // работает фильтр, даже если папок по дням в настройках нет.
       day,
+      dirSegments: placed.segments || [],
       place: placed.place,
-      path: `${placed.place === 'folder' ? day : 'Загрузки'}\\${placed.name}`,
       hash,
       size: bytes.length,
       source: meta.source || (meta.requestId ? 'НСИС' : null),
@@ -1463,7 +1494,7 @@ const Core = {
         );
       } else if (entry.place === 'folder' && entry.fileName && this.state.folder === 'ready') {
         // Из НСИС не дотянуться — делаем копию уже сохранённого файла.
-        const file = await Folder.read(entry.day, entry.fileName);
+        const file = await Folder.read(entry.dirSegments || [entry.day], entry.fileName);
         await this.intake(new Uint8Array(await file.arrayBuffer()), {
           requestId,
           createDate: entry.createDate,
@@ -1489,22 +1520,22 @@ const Core = {
    */
   fullPath(entry) {
     if (!entry) return '';
-    const tail = entry.place === 'folder' ? `${entry.day}\\${entry.fileName}` : entry.fileName;
-    const root = (this.settings.rootPath || '').replace(/[\\/]+$/, '');
     if (entry.place !== 'folder') return `Загрузки\\${entry.fileName}`;
-    return root ? `${root}\\${tail}` : tail;
+    const dir = this.folderPath(entry);
+    return dir ? `${dir}\\${entry.fileName}` : entry.fileName;
   },
 
-  /** Путь к папке: за день, если он передан, иначе к корневой. */
-  folderPath(day) {
+  /** Путь к папке записи, а без записи — к корневой. */
+  folderPath(entry) {
     const root = (this.settings.rootPath || '').replace(/[\\/]+$/, '');
-    if (!root) return day || '';
-    return day ? `${root}\\${day}` : root;
+    // У старых записей папка была одна — за день.
+    const segments = entry ? entry.dirSegments || (entry.day ? [entry.day] : []) : [];
+    return [root, ...segments].filter(Boolean).join('\\');
   },
 
   async openFile(entry) {
     if (!entry || !entry.fileName || entry.place !== 'folder' || this.state.folder !== 'ready') return null;
-    const file = await Folder.read(entry.day, entry.fileName);
+    const file = await Folder.read(entry.dirSegments || [entry.day], entry.fileName);
     const url = URL.createObjectURL(file);
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -1520,7 +1551,8 @@ const Core = {
       дело: e.caseNo || '',
       датаОтвета: e.answerDate || '',
       файл: e.fileName || '',
-      путь: e.path || '',
+      папка: (e.dirSegments || []).join('\\'),
+      путь: this.fullPath(e),
       ФУ: e.manager || '',
       hash: e.hash || '',
       статус: STATUS[e.status] || e.status,
@@ -1545,7 +1577,7 @@ const Core = {
       caseNo: r.дело || null,
       answerDate: r.датаОтвета || null,
       fileName: r.файл || '',
-      path: r.путь || '',
+      dirSegments: r.папка ? String(r.папка).split('\\').filter(Boolean) : r.день ? [r.день] : [],
       manager: r.ФУ || null,
       hash: r.hash || '',
       error: r.ошибка || null,
@@ -1959,6 +1991,7 @@ const UI = {
       this.renderRows();
     }
     if (cfgText) Core.saveSettings({ [cfgText]: e.target.value.trim() });
+
     if (cfg) {
       Core.saveSettings({ [cfg]: e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value) });
     }
@@ -2141,10 +2174,33 @@ const UI = {
             }
             <div><label>Повторов при ошибке</label><input type="number" min="1" max="10" data-cfg="retries" value="${c.retries}"></div>
           </div>
-          <div class="acts" style="margin-top:12px">
-            <label class="chk"><input type="checkbox" data-cfg="withCase" ${c.withCase ? 'checked' : ''}> номер дела в имени файла</label>
-            ${panel ? '' : `<label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${c.moveFromInbox ? 'checked' : ''}> убирать разложенное из папки загрузок</label>`}
+          ${panel ? '' : `<div class="acts" style="margin-top:12px"><label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${
+            c.moveFromInbox ? 'checked' : ''
+          }> убирать разложенное из папки загрузок</label></div>`}
+        </div>
+        <div>
+          <h3>Имя файла и папки</h3>
+          <div class="grid">
+            <div>
+              <label>Называть файл</label>
+              <select data-cfg-text="nameBy">
+                ${[
+                  ['fio', 'по ФИО должника'],
+                  ['case', 'по номеру дела'],
+                  ['both', 'ФИО и номер дела'],
+                ]
+                  .map(([v, t]) => `<option value="${v}" ${c.nameBy === v ? 'selected' : ''}>${t}</option>`)
+                  .join('')}
+              </select>
+            </div>
           </div>
+          <div class="acts" style="margin-top:12px">
+            <span class="sub">Раскладывать по папкам:</span>
+            <label class="chk"><input type="checkbox" data-cfg="byManager" ${c.byManager ? 'checked' : ''}> ФУ</label>
+            <label class="chk"><input type="checkbox" data-cfg="byCase" ${c.byCase ? 'checked' : ''}> делу</label>
+            <label class="chk"><input type="checkbox" data-cfg="byDay" ${c.byDay ? 'checked' : ''}> дню</label>
+          </div>
+          <div class="path">${esc(this.sample())}</div>
         </div>
         ${this.mode === 'page' ? this.bridgeHtml(s) : ''}
         <div>
@@ -2154,6 +2210,18 @@ const UI = {
         </div>
       </div>
     `;
+  },
+
+  /** Живой пример: что получится с текущими настройками. */
+  sample() {
+    const when = new Date();
+    const parsed = {
+      fio: ['Иванов Иван Иванович'],
+      caseNo: 'А50-26151/2025',
+      manager: Core.state.manager || 'Иванова Мария Петровна',
+    };
+    const dir = [Core.settings.rootPath || 'НСИС', ...folderFor(parsed, when, Core.settings)];
+    return `Например: ${dir.join('\\')}\\${fileNameFor(parsed, when, Core.settings)}`;
   },
 
   /* Мост лежит в настройках: нужен редко, на главном экране только мешал. */

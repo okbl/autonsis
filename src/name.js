@@ -36,18 +36,40 @@ export function sanitize(part) {
 /**
  * Имя файла ответа.
  * @param {{fio: string[], caseNo: string|null}} parsed
- * @param {Date} when время скачивания
- * @param {{withCase?: boolean}} opts
+ * @param {Date} when время раскладки
+ * @param {{nameBy?: 'fio'|'case'|'both'}} opts чем называть файл
  */
 export function fileNameFor(parsed, when = new Date(), opts = {}) {
-  const withCase = opts.withCase !== false;
+  const mode = opts.nameBy || 'both';
   const names = (parsed && parsed.fio) || [];
-  let who = names.length ? names[0] : 'Не определено';
+  const caseNo = parsed && parsed.caseNo ? sanitize(parsed.caseNo) : '';
+  let who = names.length ? names[0] : '';
   if (names.length > 1) who += ' и др.';
-  const parts = [who];
-  if (withCase && parsed && parsed.caseNo) parts.push(sanitize(parsed.caseNo));
+
+  // Если того, чем просили называть, в ответе не нашлось — берём второе,
+  // чтобы файл не превратился в безликое «Не определено».
+  const parts = [];
+  if (mode === 'case') parts.push(caseNo || who);
+  else if (mode === 'fio') parts.push(who || caseNo);
+  else parts.push(...[who, caseNo].filter(Boolean));
+  if (!parts.length || !parts[0]) parts[0] = 'Не определено';
+
   parts.push(stampFor(when));
   return `${sanitize(parts.join(' — '))}.pdf`;
+}
+
+/**
+ * Папки, в которые кладётся файл: вложенность задаётся настройками.
+ * Порядок постоянный — ФУ, дело, день, — чтобы раскладка не перемешалась,
+ * если переключить настройку в середине работы.
+ * @returns {string[]} например ['Морза Юрий Сергеевич', 'А50-26151-2025']
+ */
+export function folderFor(parsed, when = new Date(), opts = {}) {
+  const out = [];
+  if (opts.byManager) out.push(sanitize((parsed && parsed.manager) || 'ФУ не определён'));
+  if (opts.byCase) out.push(sanitize((parsed && parsed.caseNo) || 'Без номера дела'));
+  if (opts.byDay !== false) out.push(folderForDay(when));
+  return out;
 }
 
 const RU = {

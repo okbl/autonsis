@@ -13,7 +13,7 @@
 
 import { Core, STATUS } from './core.js';
 import { report } from './diag.js';
-import { folderForDay } from './name.js';
+import { folderForDay, folderFor, fileNameFor } from './name.js';
 
 const CSS = `
 :host{all:initial}
@@ -251,6 +251,7 @@ export const UI = {
       this.renderRows();
     }
     if (cfgText) Core.saveSettings({ [cfgText]: e.target.value.trim() });
+
     if (cfg) {
       Core.saveSettings({ [cfg]: e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value) });
     }
@@ -433,10 +434,33 @@ export const UI = {
             }
             <div><label>Повторов при ошибке</label><input type="number" min="1" max="10" data-cfg="retries" value="${c.retries}"></div>
           </div>
-          <div class="acts" style="margin-top:12px">
-            <label class="chk"><input type="checkbox" data-cfg="withCase" ${c.withCase ? 'checked' : ''}> номер дела в имени файла</label>
-            ${panel ? '' : `<label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${c.moveFromInbox ? 'checked' : ''}> убирать разложенное из папки загрузок</label>`}
+          ${panel ? '' : `<div class="acts" style="margin-top:12px"><label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${
+            c.moveFromInbox ? 'checked' : ''
+          }> убирать разложенное из папки загрузок</label></div>`}
+        </div>
+        <div>
+          <h3>Имя файла и папки</h3>
+          <div class="grid">
+            <div>
+              <label>Называть файл</label>
+              <select data-cfg-text="nameBy">
+                ${[
+                  ['fio', 'по ФИО должника'],
+                  ['case', 'по номеру дела'],
+                  ['both', 'ФИО и номер дела'],
+                ]
+                  .map(([v, t]) => `<option value="${v}" ${c.nameBy === v ? 'selected' : ''}>${t}</option>`)
+                  .join('')}
+              </select>
+            </div>
           </div>
+          <div class="acts" style="margin-top:12px">
+            <span class="sub">Раскладывать по папкам:</span>
+            <label class="chk"><input type="checkbox" data-cfg="byManager" ${c.byManager ? 'checked' : ''}> ФУ</label>
+            <label class="chk"><input type="checkbox" data-cfg="byCase" ${c.byCase ? 'checked' : ''}> делу</label>
+            <label class="chk"><input type="checkbox" data-cfg="byDay" ${c.byDay ? 'checked' : ''}> дню</label>
+          </div>
+          <div class="path">${esc(this.sample())}</div>
         </div>
         ${this.mode === 'page' ? this.bridgeHtml(s) : ''}
         <div>
@@ -446,6 +470,18 @@ export const UI = {
         </div>
       </div>
     `;
+  },
+
+  /** Живой пример: что получится с текущими настройками. */
+  sample() {
+    const when = new Date();
+    const parsed = {
+      fio: ['Иванов Иван Иванович'],
+      caseNo: 'А50-26151/2025',
+      manager: Core.state.manager || 'Иванова Мария Петровна',
+    };
+    const dir = [Core.settings.rootPath || 'НСИС', ...folderFor(parsed, when, Core.settings)];
+    return `Например: ${dir.join('\\')}\\${fileNameFor(parsed, when, Core.settings)}`;
   },
 
   /* Мост лежит в настройках: нужен редко, на главном экране только мешал. */

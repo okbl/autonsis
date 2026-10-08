@@ -22,7 +22,7 @@ import { Nsis, answerOf, statusCodeOf, managerName } from './api.js';
 import { Store, Folder, Inbox, sha256, downloadBlob } from './store.js';
 import { pdfPagesText, browserInflate } from './pdftext.js';
 import { parseAnswer } from './parse.js';
-import { fileNameFor, folderForDay, withCopyIndex, asciiName } from './name.js';
+import { fileNameFor, folderFor, folderForDay, withCopyIndex, asciiName } from './name.js';
 import { LIST_URL, parseLog, looksLikeLog, grab } from './bridge.js';
 
 export const HUMAN = {
@@ -56,7 +56,10 @@ const DEFAULTS = {
   watchSec: 10, // просмотр папки загрузок, секунды
   concurrency: 4,
   retries: 3,
-  withCase: true,
+  nameBy: 'both', // чем называть файл: fio | case | both
+  byManager: false, // раскладывать по папкам ФУ
+  byCase: false, // … и по номеру дела
+  byDay: true, // … и по дню
   deepPages: 4, // страниц журнала обращений за проверку (по 50)
   moveFromInbox: true, // убирать разложенное из папки загрузок
 };
@@ -539,17 +542,20 @@ export const Core = {
 
     const when = new Date();
     const day = folderForDay(when);
-    const name = fileNameFor(parsed, when, { withCase: this.settings.withCase });
+    // ФУ в ответе указан не всегда — тогда берём того, кто сейчас работает.
+    const forName = { ...parsed, manager: parsed.manager || this.state.manager };
+    const name = fileNameFor(forName, when, { nameBy: this.settings.nameBy });
+    const segments = folderFor(forName, when, this.settings);
     const blob = new Blob([bytes], { type: 'application/pdf' });
     let placed;
     if (this.state.folder === 'ready') {
       try {
-        placed = { ...(await Folder.write(day, name, blob, withCopyIndex)), place: 'folder' };
+        placed = { ...(await Folder.write(segments, name, blob, withCopyIndex)), place: 'folder' };
       } catch (e) {
         // Если файловая система не приняла имя с кириллицей — пишем латиницей,
         // но файл не теряем.
         if (e && (e.name === 'TypeError' || e.name === 'TypeMismatchError' || e.name === 'InvalidModificationError')) {
-          placed = { ...(await Folder.write(day, asciiName(name), blob, withCopyIndex)), place: 'folder' };
+          placed = { ...(await Folder.write(segments, asciiName(name), blob, withCopyIndex)), place: 'folder' };
         } else throw e;
       }
     } else {
@@ -571,11 +577,11 @@ export const Core = {
       createDate: meta.createDate || prev.createDate || null,
       manager: parsed.manager || this.state.manager,
       fileName: placed.name,
-      // День всегда датой: по нему считается «сегодня» и работает фильтр,
-      // даже когда файл ушёл в «Загрузки» без раскладки по папкам.
+      // День хранится всегда датой: по нему считается «разложено сегодня» и
+      // работает фильтр, даже если папок по дням в настройках нет.
       day,
+      dirSegments: placed.segments || [],
       place: placed.place,
-      path: `${placed.place === 'folder' ? day : 'Загрузки'}\\${placed.name}`,
       hash,
       size: bytes.length,
       source: meta.source || (meta.requestId ? 'НСИС' : null),
@@ -603,7 +609,7 @@ export const Core = {
         );
       } else if (entry.place === 'folder' && entry.fileName && this.state.folder === 'ready') {
         // Из НСИС не дотянуться — делаем копию уже сохранённого файла.
-        const file = await Folder.read(entry.day, entry.fileName);
+        const file = await Folder.read(entry.dirSegments || [entry.day], entry.fileName);
         await this.intake(new Uint8Array(await file.arrayBuffer()), {
           requestId,
           createDate: entry.createDate,
@@ -629,22 +635,22 @@ export const Core = {
    */
   fullPath(entry) {
     if (!entry) return '';
-    const tail = entry.place === 'folder' ? `${entry.day}\\${entry.fileName}` : entry.fileName;
-    const root = (this.settings.rootPath || '').replace(/[\\/]+$/, '');
     if (entry.place !== 'folder') return `Загрузки\\${entry.fileName}`;
-    return root ? `${root}\\${tail}` : tail;
+    const dir = this.folderPath(entry);
+    return dir ? `${dir}\\${entry.fileName}` : entry.fileName;
   },
 
-  /** Путь к папке: за день, если он передан, иначе к корневой. */
-  folderPath(day) {
+  /** Путь к папке записи, а без записи — к корневой. */
+  folderPath(entry) {
     const root = (this.settings.rootPath || '').replace(/[\\/]+$/, '');
-    if (!root) return day || '';
-    return day ? `${root}\\${day}` : root;
+    // У старых записей папка была одна — за день.
+    const segments = entry ? entry.dirSegments || (entry.day ? [entry.day] : []) : [];
+    return [root, ...segments].filter(Boolean).join('\\');
   },
 
   async openFile(entry) {
     if (!entry || !entry.fileName || entry.place !== 'folder' || this.state.folder !== 'ready') return null;
-    const file = await Folder.read(entry.day, entry.fileName);
+    const file = await Folder.read(entry.dirSegments || [entry.day], entry.fileName);
     const url = URL.createObjectURL(file);
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -660,7 +666,8 @@ export const Core = {
       дело: e.caseNo || '',
       датаОтвета: e.answerDate || '',
       файл: e.fileName || '',
-      путь: e.path || '',
+      папка: (e.dirSegments || []).join('\\'),
+      путь: this.fullPath(e),
       ФУ: e.manager || '',
       hash: e.hash || '',
       статус: STATUS[e.status] || e.status,
@@ -685,7 +692,7 @@ export const Core = {
       caseNo: r.дело || null,
       answerDate: r.датаОтвета || null,
       fileName: r.файл || '',
-      path: r.путь || '',
+      dirSegments: r.папка ? String(r.папка).split('\\').filter(Boolean) : r.день ? [r.день] : [],
       manager: r.ФУ || null,
       hash: r.hash || '',
       error: r.ошибка || null,
