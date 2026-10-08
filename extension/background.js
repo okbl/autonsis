@@ -21,9 +21,66 @@
  * когда раскладывает их по папкам за день.
  */
 const SUBDIR = 'nsis-inbox';
-// Адрес кабинета вынесен в настройки: так его можно подменить в проверках и
-// поправить, если НСИС однажды переедет, не трогая код.
-const DEFAULTS = { intervalMin: 15, enabled: true, api: 'https://bff.nsis.ru' };
+/*
+ * Настройки. Адрес кабинета здесь же: так его можно подменить в проверках и
+ * поправить, если НСИС однажды переедет, не трогая код.
+ *
+ * batch и parallel — разные вещи, и их легко перепутать. batch отвечает на
+ * вопрос «сколько ответов забрать за одну проверку», parallel — «сколько из
+ * них качать одновременно». Осторожный режим — batch 10, parallel 1: НСИС
+ * получает по одному запросу за раз. Быстрый — batch 0 (всё, что готово) и
+ * parallel 5.
+ */
+export const DEFAULTS = {
+  intervalMin: 15,
+  enabled: true,
+  api: 'https://bff.nsis.ru',
+  batch: 20,
+  parallel: 3,
+  logLimit: 50,
+};
+
+// Границы настроек. Ноль у batch разрешён отдельно и означает «все готовые».
+const LIMITS = {
+  intervalMin: [1, 240],
+  batch: [0, 500],
+  parallel: [1, 8],
+  logLimit: [10, 500],
+};
+
+/** Числа из настроек приводим к целым в разумных границах: поле ввода врёт. */
+export function clampSettings(raw) {
+  const out = { ...DEFAULTS, ...(raw || {}) };
+  for (const key of Object.keys(LIMITS)) {
+    const [lo, hi] = LIMITS[key];
+    const n = Math.round(Number(out[key]));
+    out[key] = Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : DEFAULTS[key];
+  }
+  return out;
+}
+
+/**
+ * Очередь с ограниченной шириной: запускаем не больше width задач сразу,
+ * освободившийся работник берёт следующую. Результат — массив признаков
+ * успеха в исходном порядке, чтобы порядок скачанного не зависел от того,
+ * какой файл пришёл раньше.
+ */
+export async function pool(items, width, work) {
+  const done = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    for (let i = next++; i < items.length; i = next++) {
+      try {
+        await work(items[i]);
+        done[i] = true;
+      } catch (e) {
+        done[i] = false;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, width), items.length) }, worker));
+  return done;
+}
 
 /** Готовый PDF из записи журнала — та же проверка, что у самого кабинета. */
 export function answerOf(query) {
@@ -53,12 +110,14 @@ export function pdfUrl(pdf, api = DEFAULTS.api) {
  * Одна проверка. Всё внешнее передаётся аргументами, поэтому логику можно
  * прогнать в тестах без браузера.
  */
-export async function checkOnce({ fetchImpl, download, state, api = DEFAULTS.api, now = () => new Date() }) {
+export async function checkOnce({ fetchImpl, download, state, settings, now = () => new Date() }) {
+  const cfg = clampSettings(settings);
+  const api = cfg.api;
   const done = state.done || [];
   let queries;
   try {
     const resp = await fetchImpl(
-      `${api}/bff/bff-query-log/request-log?limit=50&offset=0&sortDirection=desc`,
+      `${api}/bff/bff-query-log/request-log?limit=${cfg.logLimit}&offset=0&sortDirection=desc`,
       { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' } }
     );
     if (resp.status === 401 || resp.status === 403) {
@@ -71,26 +130,30 @@ export async function checkOnce({ fetchImpl, download, state, api = DEFAULTS.api
     return { ...state, status: 'offline', error: String((e && e.message) || e), checkedAt: now().toISOString() };
   }
 
-  const todo = pending(queries, done);
-  let saved = 0;
-  const failed = [];
-  for (const item of todo) {
-    try {
-      await download({ url: pdfUrl(item.pdf, api), filename: `${SUBDIR}/nsis-${item.id}.pdf`, conflictAction: 'uniquify' });
-      done.push(item.id);
-      saved++;
-    } catch (e) {
-      failed.push(item.id);
-    }
-  }
+  const ready = pending(queries, done);
+  // batch = 0 означает «забрать всё готовое»; остальное подождёт следующей
+  // проверки, и сколько именно — видно в окне расширения.
+  const todo = cfg.batch > 0 ? ready.slice(0, cfg.batch) : ready;
+  const left = ready.length - todo.length;
+
+  const got = await pool(todo, cfg.parallel, (item) =>
+    download({ url: pdfUrl(item.pdf, api), filename: `${SUBDIR}/nsis-${item.id}.pdf`, conflictAction: 'uniquify' })
+  );
+  // Помечаем обработанными в исходном порядке, а не в порядке завершения.
+  todo.forEach((item, i) => {
+    if (got[i]) done.push(item.id);
+  });
+  const saved = got.filter(Boolean).length;
+  const failed = got.length - saved;
 
   return {
     ...state,
     status: 'ok',
-    error: failed.length ? `не удалось скачать: ${failed.length}` : null,
+    error: failed ? `не удалось скачать: ${failed}` : null,
     done: done.slice(-3000),
     saved: (state.saved || 0) + saved,
     lastSaved: saved,
+    left,
     seen: queries.length,
     checkedAt: now().toISOString(),
   };
@@ -102,7 +165,16 @@ const hasChrome = typeof chrome !== 'undefined' && chrome.storage;
 
 async function load() {
   const got = await chrome.storage.local.get(['state', 'settings']);
-  return { state: got.state || { done: [] }, settings: { ...DEFAULTS, ...(got.settings || {}) } };
+  return { state: got.state || { done: [] }, settings: clampSettings(got.settings) };
+}
+
+/* Сохранить настройки и сразу применить то, что меняет расписание. */
+async function saveSettings(patch) {
+  const { settings } = await load();
+  const next = clampSettings({ ...settings, ...(patch || {}) });
+  await chrome.storage.local.set({ settings: next });
+  chrome.alarms.create('check', { periodInMinutes: next.intervalMin });
+  return next;
 }
 
 function downloadViaChrome(options) {
@@ -118,7 +190,7 @@ function downloadViaChrome(options) {
 export async function runCheck() {
   const { state, settings } = await load();
   if (!settings.enabled) return state;
-  const next = await checkOnce({ fetchImpl: fetch, download: downloadViaChrome, state, api: settings.api });
+  const next = await checkOnce({ fetchImpl: fetch, download: downloadViaChrome, state, settings });
   await chrome.storage.local.set({ state: next });
   const badge = next.status === 'ok' ? (next.lastSaved ? String(next.lastSaved) : '') : '!';
   chrome.action.setBadgeText({ text: badge });
@@ -129,7 +201,7 @@ export async function runCheck() {
 if (hasChrome) {
   chrome.runtime.onInstalled.addListener(async () => {
     const { settings } = await load();
-    chrome.alarms.create('check', { periodInMinutes: Math.max(1, settings.intervalMin) });
+    chrome.alarms.create('check', { periodInMinutes: settings.intervalMin });
     runCheck();
   });
   chrome.runtime.onStartup.addListener(() => runCheck());
@@ -143,6 +215,10 @@ if (hasChrome) {
     }
     if (msg === 'state') {
       load().then(reply);
+      return true;
+    }
+    if (msg && msg.settings) {
+      saveSettings(msg.settings).then(reply);
       return true;
     }
     return false;

@@ -24,6 +24,16 @@ button:hover{background:var(--acc-2)}
 button.sec{background:var(--surface);color:var(--ink-2);border-color:var(--line-2);font-weight:400}
 button.sec:hover{color:var(--ink);border-color:var(--ink-3)}
 p.hint{color:var(--ink-3);font-size:12px;margin:10px 0 0}
+h2{margin:16px 0 6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-3)}
+.set{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0}
+.set label{color:var(--ink-2);flex:1}
+.set input{font:inherit;font-size:13px;width:62px;text-align:right;padding:4px 8px;
+  border:1px solid var(--line-2);border-radius:8px;background:var(--surface);color:var(--ink);
+  font-variant-numeric:tabular-nums}
+.set input:focus{outline:none;border-color:var(--acc)}
+.set small{display:block;color:var(--ink-3);font-size:11.5px;line-height:1.3}
+#saved{color:var(--olive);font-size:12px;height:14px;margin-top:4px}
 </style>
 </head>
 <body>
@@ -32,9 +42,28 @@ p.hint{color:var(--ink-3);font-size:12px;margin:10px 0 0}
 <div class="row"><span>последняя проверка</span><span id="when">—</span></div>
 <div class="row"><span>скачано за прошлый раз</span><span id="last">—</span></div>
 <div class="row"><span>скачано всего</span><span id="total">—</span></div>
+<div class="row"><span>осталось забрать</span><span id="left">—</span></div>
 <button id="check">Проверить сейчас</button>
 <button class="sec" id="open">Открыть раскладку</button>
-<p class="hint">Файлы попадают в «Загрузки/НСИС-входящие». Имена, папки по дням и журнал делает страница «НСИС — ответы».</p>
+<h2>Сколько скачивать</h2>
+<div class="set">
+  <label for="batch">За одну проверку<small>0 — забирать всё готовое</small></label>
+  <input id="batch" type="number" min="0" max="500" step="1">
+</div>
+<div class="set">
+  <label for="parallel">Одновременно<small>от 1 до 8 файлов сразу</small></label>
+  <input id="parallel" type="number" min="1" max="8" step="1">
+</div>
+<div class="set">
+  <label for="intervalMin">Проверять раз в<small>минут</small></label>
+  <input id="intervalMin" type="number" min="1" max="240" step="1">
+</div>
+<div class="set">
+  <label for="logLimit">Просматривать обращений<small>глубина журнала НСИС</small></label>
+  <input id="logLimit" type="number" min="10" max="500" step="10">
+</div>
+<div id="saved"></div>
+<p class="hint">Файлы попадают в «Загрузки/nsis-inbox». Имена, папки по дням и журнал делает страница «НСИС — ответы».</p>
 <script src="popup.js"></script>
 </body>
 </html>
