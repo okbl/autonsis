@@ -145,6 +145,7 @@ ok('панель показывает ФУ', shadow.includes('Щенников �
 ok('панель показывает должника', shadow.includes('Борцов Николай Валерьевич'));
 ok('панель показывает кнопку проверки', shadow.includes('Проверить сейчас'));
 ok('панель предупреждает про папку', shadow.includes('Запись в папку недоступна'));
+ok('у записи есть кнопка пути к файлу', shadow.includes('data-do="filePath"'), shadow.slice(0, 200));
 
 // повторная проверка не должна скачивать то же ещё раз
 const before = calls.filter((c) => c.includes('insurance-history/pdf')).length;
@@ -207,7 +208,9 @@ ok('недоступность НСИС распознана', pageApp.core.stat
 const pageShadow = () => site.window.document.getElementById('nsis-auto-panel').shadowRoot.innerHTML;
 ok('предложен мост через список кабинета', pageShadow().includes('Забрать ответы из НСИС'));
 ok('есть кнопка «Открыть список»', pageShadow().includes('Открыть список НСИС'));
-ok('есть кнопка папки загрузок', pageShadow().includes('Папка загрузок'));
+ok('есть кнопка настроек', pageShadow().includes('Настройки'));
+// Сводку убрали с главного экрана — она живёт в настройках.
+ok('сводки на главном экране нет', !pageShadow().includes('разложено сегодня'), pageShadow().slice(0, 200));
 
 // мост: список обращений → скачивания переходами
 const opened = [];

@@ -44,6 +44,7 @@ export const STATUS = {
 };
 
 const DEFAULTS = {
+  rootPath: '', // полный путь к папке НСИС — для копирования путей; см. fullPath()
   intervalMin: 15, // проверка НСИС, минуты
   watchSec: 10, // просмотр папки загрузок, секунды
   concurrency: 4,
@@ -611,6 +612,27 @@ export const Core = {
       this.emit();
       this.mirrorJournal();
     }
+  },
+
+  /*
+   * Полный путь к файлу. Браузер не говорит странице, где на диске лежит
+   * выбранная папка, и открыть проводник тоже не может — поэтому корень
+   * пользователь указывает сам в настройках, а мы собираем из него путь,
+   * который можно вставить в проводник или в окно выбора файла в 1С.
+   */
+  fullPath(entry) {
+    if (!entry) return '';
+    const tail = entry.place === 'folder' ? `${entry.day}\\${entry.fileName}` : entry.fileName;
+    const root = (this.settings.rootPath || '').replace(/[\\/]+$/, '');
+    if (entry.place !== 'folder') return `Загрузки\\${entry.fileName}`;
+    return root ? `${root}\\${tail}` : tail;
+  },
+
+  /** Путь к папке: за день, если он передан, иначе к корневой. */
+  folderPath(day) {
+    const root = (this.settings.rootPath || '').replace(/[\\/]+$/, '');
+    if (!root) return day || '';
+    return day ? `${root}\\${day}` : root;
   },
 
   async openFile(entry) {

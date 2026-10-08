@@ -1,13 +1,17 @@
 /*
- * Интерфейс. Один и тот же код работает в двух видах:
- *   — страница-приложение (режим page): открыли адрес — это рабочее место;
- *   — панель поверх кабинета НСИС (режим panel), когда код запущен закладкой.
+ * Интерфейс. Один код в двух видах: страница-приложение (режим page) и
+ * панель поверх кабинета НСИС (режим panel), куда его приносит закладка.
+ * Живёт в shadow-root — стили кабинета на нас не влияют, наши на него тоже.
  *
- * Внутри — shadow-root: стили НСИС не влияют на нас, наши — на НСИС.
- * Оформление как в ОКБ-анализаторе: алебастровый фон, тёплый грейж
- * поверхностей, угольный текст, терракота как единственный акцент, плитки,
- * табличные цифры. Цвет несёт смысл: терракота — требует внимания,
- * кирпичный — ошибка, олива — «в порядке».
+ * Оформление снято с самого кабинета НСИС: акцент #0A4FCA, нажатие #003D99,
+ * фон #F2F5FA, текст #2F3541, глубокий синий #162F5A, кнопки-пилюли, крупные
+ * скругления, их тень, шрифт Onest. Цвет здесь несёт смысл: зелёный —
+ * разложено, янтарный — требует внимания, красный — ошибка, серый —
+ * пропущено. Зелёный у них слабоконтрастный, поэтому он идёт заливкой, а
+ * текст в плашке остаётся тёмным.
+ *
+ * Сводка (сколько разложено, ошибок, пропущено) намеренно убрана с главного
+ * экрана в настройки: каждый день она не нужна, а место занимала.
  */
 
 import { Core, STATUS } from './core.js';
@@ -18,90 +22,133 @@ const CSS = `
 :host{all:initial}
 *{box-sizing:border-box}
 .wrap{
-  --bg:#F1ECE6;--surface:#FBF9F6;--surface-2:#E7E0D8;--line:#DDD5CD;--line-2:#C6BCB1;
-  --ink:#2B2D31;--ink-2:#5F6165;--ink-3:#8A867F;
-  --acc:#8D321F;--acc-2:#A94229;--acc-wash:#F6E7E2;--olive:#3A4027;--brick:#B25720;
-  --r:16px;--r-sm:10px;
-  display:flex;flex-direction:column;
-  background:var(--bg);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);
-  font-family:Onest,"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.45;
-  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+  --blue:#0A4FCA;--blueDark:#003D99;--navy:#162F5A;--cello25:#1C2F5440;
+  --ink:#2F3541;--ink-2:#575D69;--ink-3:#7E8492;
+  --bg:#F2F5FA;--line:#ECEEF2;--line-2:#E6ECF5;
+  --green:#09B37B;--greenBg:#E1F5EF;--greenInk:#0B7A56;
+  --amber:#F38B00;--amberBg:#FDF1E0;--amberInk:#9A5A00;
+  --red:#EB3333;--redBg:#FDEBEB;--redInk:#B32020;
+  --shadow:0 8px 16px -4px #2f35411a,0 4px 8px 0 #2f35410d;
+  --r:20px;--rLg:26px;--pill:999px;
+  display:flex;flex-direction:column;gap:14px;
+  background:transparent;color:var(--ink);
+  font-family:Onest,"Segoe UI",system-ui,sans-serif;font-size:15px;line-height:1.5;
+  font-variant-numeric:tabular-nums;
 }
 .wrap.isPanel{
   position:fixed;right:18px;bottom:18px;z-index:2147483600;
-  width:min(1040px,calc(100vw - 36px));max-height:calc(100vh - 36px);
-  box-shadow:0 1px 2px rgba(43,45,49,.06),0 24px 60px -30px rgba(43,45,49,.5);
+  width:min(1120px,calc(100vw - 36px));max-height:calc(100vh - 36px);overflow:auto;
+  background:var(--bg);border-radius:var(--rLg);padding:14px;
+  box-shadow:0 24px 60px -24px #16305a66,0 2px 8px #2f354114;
 }
-.wrap.isPanel.isMin{width:auto;max-width:420px}
-.top{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--surface);
-  border-bottom:1px solid var(--line);border-radius:var(--r) var(--r) 0 0}
-.mark{width:22px;height:22px;border-radius:7px;flex:none;background:linear-gradient(135deg,#8D321F,#7D4047)}
-.ttl{font-weight:600;letter-spacing:-.015em}
-.who{color:var(--ink-2);font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.who b{color:var(--ink)}
-.dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--olive)}
-.dot.warn{background:var(--acc)}
-.dot.down{background:var(--brick)}
+.wrap.isPanel.isMin{width:auto;max-width:460px}
+
+.card{background:#fff;border-radius:var(--rLg);box-shadow:var(--shadow);padding:18px 20px}
+.card.flat{padding:14px 18px}
+
+/* ---------- шапка ---------- */
+.top{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.sign{width:32px;height:32px;border-radius:10px;background:var(--navy);position:relative;flex:none}
+.sign:after{content:"";position:absolute;inset:7px 7px auto 7px;height:4px;border-radius:2px;background:var(--blue)}
+.sign:before{content:"";position:absolute;inset:auto 7px 6px 7px;height:9px;border-radius:3px;background:#ffffff40}
+.ttl{font-weight:600;font-size:16px;letter-spacing:-.01em;line-height:1.2}
+.ttl span{display:block;font-size:11.5px;font-weight:400;color:var(--ink-3)}
+.mark{font-size:11.5px;color:var(--ink-3);border:1px solid var(--cello25);border-radius:var(--pill);padding:4px 11px;white-space:nowrap}
+.state{margin-left:auto;display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink-2);min-width:0}
+.state b{color:var(--ink)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex:none}
+.dot.warn{background:var(--amber)}
+.dot.down{background:var(--red)}
 .dot.off{background:var(--ink-3)}
-.spacer{margin-left:auto}
-button{font:inherit;cursor:pointer}
-.btn{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:999px;
-  padding:6px 14px;font-size:13px;transition:border-color .15s,color .15s,background .15s}
-.btn:hover{border-color:var(--ink-3);color:var(--ink)}
-.btn.pri{background:var(--acc);border-color:var(--acc);color:#FBF9F6;font-weight:600}
-.btn.pri:hover{background:var(--acc-2);border-color:var(--acc-2)}
-.btn:disabled{opacity:.5;cursor:default}
-.btn.icon{padding:5px 9px;font-size:12.5px}
-.body{padding:14px;overflow:auto}
-.note{background:var(--acc-wash);border:1px solid #E2C6BC;border-radius:var(--r-sm);
-  padding:10px 12px;margin-bottom:12px;font-size:13px}
-.note.calm{background:var(--surface);border-color:var(--line)}
-.note b{display:block;margin-bottom:2px}
-.note .btn{margin-top:8px}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:12px}
-.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
-.tile .n{font-size:26px;font-weight:600;letter-spacing:-.02em}
-.tile .l{font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
-.tile.err .n{color:var(--brick)}
-.acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
-.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-input,select{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);
-  border:1px solid var(--line-2);border-radius:9px;padding:6px 9px}
-input:focus,select:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-wash)}
-input.q{flex:1 1 200px}
-/* Фиксированная раскладка: длинные имена файлов не должны вытеснять кнопки. */
-table{width:100%;min-width:900px;border-collapse:collapse;font-size:13px;table-layout:fixed}
-th{text-align:left;font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;
-  font-weight:600;padding:0 8px 6px;border-bottom:1px solid var(--line)}
-td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
-td.nw{white-space:nowrap}
-td .cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#rows{overflow-x:auto}
-tr:hover td{background:var(--surface)}
-.fio{font-weight:600}
-.sub{color:var(--ink-3);font-size:12px}
-.st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;
-  background:var(--surface-2);color:var(--ink-2);white-space:nowrap}
-.st.ok{background:#E8EADF;color:var(--olive)}
-.st.err{background:#F6E1D6;color:var(--brick)}
-.st.warn{background:var(--acc-wash);color:var(--acc)}
-.rowacts{display:flex;gap:6px;justify-content:flex-end;white-space:nowrap}
-.empty{padding:26px 10px;text-align:center;color:var(--ink-3)}
-.cfg{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;
-  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:12px;margin-bottom:12px}
-.cfg label{display:block;font-size:11.5px;color:var(--ink-3);margin-bottom:4px}
-.cfg .chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink-2);margin-top:18px}
-.hint{font-size:12px;color:var(--ink-3);margin-top:8px}
-.paths{font-size:12px;color:var(--ink-3);margin-bottom:12px}
-.paths b{color:var(--ink-2);font-weight:600}
+
+/* ---------- кнопки ---------- */
+button{font:inherit}
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid transparent;border-radius:var(--pill);
+  padding:10px 20px;font-size:14px;cursor:pointer;background:var(--blue);color:#fff;font-weight:600;
+  transition:background .15s,border-color .15s,color .15s}
+.btn:hover{background:var(--blueDark)}
+.btn.sec{background:#fff;color:var(--ink);border-color:var(--cello25);font-weight:400}
+.btn.sec:hover{border-color:var(--blue);color:var(--blue)}
+.btn.sm{padding:7px 14px;font-size:13px}
+.btn:disabled{opacity:.55;cursor:default}
+.acts{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* ---------- сообщения ---------- */
+.note{border-radius:var(--r);padding:14px 18px;font-size:14px;background:#fff;box-shadow:var(--shadow)}
+.note.attn{background:var(--amberBg);box-shadow:none;border:1px solid #f3c88a66}
+.note.bad{background:var(--redBg);box-shadow:none;border:1px solid #f0b3b3}
+.note b{display:block;margin-bottom:3px;color:var(--ink)}
+.note .btn{margin-top:10px;margin-right:8px}
+.steps{counter-reset:s;margin:10px 0 0;padding:0;list-style:none;display:grid;gap:6px}
+.steps li{counter-increment:s;position:relative;padding-left:30px;color:var(--ink-2);font-size:14px}
+.steps li:before{content:counter(s);position:absolute;left:0;top:1px;width:21px;height:21px;border-radius:50%;
+  background:var(--line-2);color:var(--navy);font-size:12px;font-weight:600;display:grid;place-items:center}
+.steps b{display:inline;color:var(--ink);font-weight:600}
+
+/* ---------- фильтры ---------- */
+.filters{display:flex;gap:10px;flex-wrap:wrap}
+input,select{font:inherit;font-size:14px;color:var(--ink);background:#fff;border:1px solid var(--cello25);
+  border-radius:var(--pill);padding:10px 16px;min-width:140px}
+input:focus,select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px #0a4fca1f}
+input.q{flex:1 1 260px}
+
+/* ---------- журнал ---------- */
+.hdr,.row{display:grid;grid-template-columns:minmax(190px,1.3fr) 142px 104px minmax(170px,1.4fr) 300px;gap:14px;align-items:center}
+.hdr{padding:2px 20px 0;font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
+.hdr span:last-child{text-align:right}
+.row{background:#fff;border-radius:var(--r);box-shadow:var(--shadow);padding:15px 20px}
+.row .who{font-weight:600}
+.sub{color:var(--ink-3);font-size:12.5px;margin-top:2px}
+.cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.right{display:flex;align-items:center;gap:9px;justify-content:flex-end}
+.st{display:inline-flex;align-items:center;gap:7px;border-radius:var(--pill);padding:6px 13px;font-size:13px;white-space:nowrap}
+.st:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.st.ok{background:var(--greenBg);color:var(--greenInk)}
+.st.warn{background:var(--amberBg);color:var(--amberInk)}
+.st.err{background:var(--redBg);color:var(--redInk)}
+.st.skip{background:var(--line);color:var(--ink-2)}
+.rows{display:grid;gap:10px}
+.empty{background:#fff;border-radius:var(--r);box-shadow:var(--shadow);padding:30px 20px;text-align:center;color:var(--ink-3)}
+
+/* ---------- настройки ---------- */
+.cfg{display:grid;gap:16px}
+.cfg h3{margin:0 0 10px;font-size:14px;letter-spacing:-.01em}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.grid label{display:block;font-size:11.5px;color:var(--ink-3);margin-bottom:5px}
+.grid input{width:100%;min-width:0}
+.chk{display:flex;gap:9px;align-items:center;font-size:14px;color:var(--ink-2);cursor:pointer}
+.chk input{min-width:0;width:17px;height:17px;accent-color:var(--blue);padding:0}
+.stats{display:flex;gap:26px;flex-wrap:wrap}
+.stat .n{font-size:24px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.stat .l{font-size:12px;color:var(--ink-3)}
+.stat.ok .n{color:var(--green)}
+.stat.err .n{color:var(--red)}
+.path{font-size:12.5px;color:var(--ink-3);margin-top:8px;word-break:break-all}
+
+/* ---------- подвал и мелочи ---------- */
+.foot{background:var(--navy);color:#ffffffcc;border-radius:var(--rLg);padding:16px 22px;font-size:13px;
+  position:relative;overflow:hidden}
+.foot b{color:#fff}
+.foot:after{content:"";position:absolute;right:-70px;top:-90px;width:260px;height:260px;border-radius:50%;
+  background:var(--blue);opacity:.45}
+.foot div{position:relative;z-index:1;max-width:78ch}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--navy);color:#fff;
+  border-radius:var(--pill);padding:11px 22px;font-size:14px;box-shadow:0 12px 30px -10px #16305a99;z-index:2147483647}
+textarea{width:100%;height:210px;margin-top:10px;font:12px/1.45 ui-monospace,Consolas,monospace;
+  border:1px solid var(--cello25);border-radius:14px;padding:10px;background:#fff;color:var(--ink)}
+@media (max-width:1000px){
+  .hdr{display:none}
+  .row{grid-template-columns:1fr;gap:8px}
+  .right{justify-content:flex-start;flex-wrap:wrap}
+}
 `;
 
 const esc = (s) =>
   String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const STATUS_CLASS = { saved: 'ok', no_fio: 'warn', duplicate: '', error: 'err' };
+const STATUS_CLASS = { saved: 'ok', no_fio: 'warn', duplicate: 'skip', error: 'err' };
 
-/** «Щенников Алексей Дмитриевич» → «Щенников А. Д.»: колонка ФУ узкая. */
+/** «Щенников Алексей Дмитриевич» → «Щенников А. Д.»: место в строке дорого. */
 function shortFio(name) {
   const parts = String(name || '').trim().split(/\s+/);
   if (parts.length < 2) return name || '';
@@ -116,7 +163,6 @@ function dateOf(iso) {
 
 export const UI = {
   root: null,
-  shadow: null,
   mode: 'page',
   min: false,
   cfgOpen: false,
@@ -126,12 +172,13 @@ export const UI = {
     this.mode = mode || 'page';
     this.root = document.createElement('div');
     this.root.id = 'nsis-auto-panel';
-    this.shadow = this.root.attachShadow({ mode: 'open' });
+    const shadow = this.root.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = CSS;
     const wrap = document.createElement('div');
     wrap.className = 'wrap';
-    this.shadow.append(style, wrap);
+    shadow.append(style, wrap);
+    this.shadow = shadow;
     this.wrap = wrap;
     (host || document.body).appendChild(this.root);
 
@@ -143,18 +190,37 @@ export const UI = {
     this.render();
   },
 
+  /** Короткое подтверждение действия — копирование иначе происходит молча. */
+  toast(text) {
+    const old = this.shadow.querySelector('.toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    this.shadow.appendChild(el);
+    setTimeout(() => el.remove(), 2600);
+  },
+
+  async copy(text, what) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast(`${what} скопирован: ${text}`);
+    } catch {
+      this.toast(`Скопировать не удалось. Путь: ${text}`);
+    }
+  },
+
   onClick(e) {
     const btn = e.target.closest('[data-do]');
     if (!btn) return;
     const { do: action, id } = btn.dataset;
+    const entry = () => Core.state.entries.find((x) => x.requestId === id);
     const run = {
       check: () => Core.tick(),
       auto: () => (Core.state.auto ? Core.stopAuto() : Core.startAuto()),
       folder: () => (Core.state.folder === 'denied' ? Core.grant('folder') : Core.pick('folder')),
       inbox: () => (Core.state.inbox === 'denied' ? Core.grant('inbox') : Core.pick('inbox')),
-      diag: () => this.showDiag(),
-      list: () => Core.openList(),
-      paste: () => Core.pasteList(),
       cfg: () => {
         this.cfgOpen = !this.cfgOpen;
         this.render();
@@ -164,44 +230,16 @@ export const UI = {
         this.render();
       },
       close: () => this.root.remove(),
+      list: () => Core.openList(),
+      paste: () => Core.pasteList(),
+      diag: () => this.showDiag(),
       again: () => Core.again(id),
-      open: () => Core.openFile(Core.state.entries.find((x) => x.requestId === id)),
-      path: () => {
-        const entry = Core.state.entries.find((x) => x.requestId === id);
-        if (entry) navigator.clipboard.writeText(entry.path || entry.fileName || '');
-      },
+      open: () => Core.openFile(entry()),
+      filePath: () => this.copy(Core.fullPath(entry()), 'Путь к файлу'),
+      dayPath: () => this.copy(Core.folderPath((entry() || {}).day), 'Путь к папке'),
+      rootPath: () => this.copy(Core.folderPath(), 'Путь к папке НСИС'),
     }[action];
     if (run) Promise.resolve(run()).catch((err) => console.warn('[НСИС]', err));
-  },
-
-  /*
-   * Отчёт показываем прямо в панели и кладём в буфер: на рабочем компьютере
-   * консоль открывать неудобно, а переслать текст — просто.
-   */
-  async showDiag() {
-    const host = this.wrap.querySelector('#rows');
-    if (host) host.insertAdjacentHTML('beforebegin', '<div class="note calm" id="diag"><b>Собираем отчёт…</b></div>');
-    let text;
-    try {
-      text = await report();
-    } catch (e) {
-      text = 'Диагностика не собралась: ' + ((e && e.message) || e);
-    }
-    let copied = '';
-    try {
-      await navigator.clipboard.writeText(text);
-      copied = ' Он уже в буфере обмена — можно вставить в переписку.';
-    } catch {
-      copied = ' Выделите текст и скопируйте вручную.';
-    }
-    const box = this.wrap.querySelector('#diag');
-    if (box) {
-      box.innerHTML =
-        `<b>Отчёт о состоянии</b>Личных данных в нём нет: строки с русскими буквами заменены на пометку о длине.${copied}` +
-        `<textarea readonly style="width:100%;height:220px;margin-top:8px;font:12px/1.45 ui-monospace,Consolas,monospace;` +
-        `border:1px solid var(--line-2);border-radius:9px;padding:8px;background:var(--surface);color:var(--ink)"></textarea>`;
-      box.querySelector('textarea').value = text;
-    }
   },
 
   onInput(e) {
@@ -212,14 +250,14 @@ export const UI = {
   },
 
   onChange(e) {
-    const { filter, cfg } = e.target.dataset;
+    const { filter, cfg, cfgText } = e.target.dataset;
     if (filter) {
       this.filters[filter] = e.target.value;
       this.renderRows();
     }
+    if (cfgText) Core.saveSettings({ [cfgText]: e.target.value.trim() });
     if (cfg) {
-      const value = e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value);
-      Core.saveSettings({ [cfg]: value });
+      Core.saveSettings({ [cfg]: e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value) });
     }
   },
 
@@ -241,143 +279,60 @@ export const UI = {
       return s.nsis === 'ok'
         ? { text: 'НСИС в порядке', dot: '' }
         : s.nsis === 'session'
-        ? { text: 'Сессия истекла', dot: 'warn' }
+        ? { text: 'сессия истекла', dot: 'warn' }
         : s.nsis === 'down'
         ? { text: 'НСИС недоступна', dot: 'down' }
         : { text: 'проверяем…', dot: 'off' };
     }
     if (s.inbox !== 'ready') return { text: 'папка загрузок не указана', dot: 'warn' };
-    return s.auto
-      ? { text: `следим за папкой загрузок`, dot: '' }
-      : { text: 'слежение остановлено', dot: 'off' };
+    return s.auto ? { text: 'следим за папкой загрузок', dot: '' } : { text: 'слежение остановлено', dot: 'off' };
   },
 
   render() {
     const s = Core.state;
     const st = this.statusLine(s);
-    const c = Core.counters();
+    const panel = this.mode === 'panel';
 
-    this.wrap.className = `wrap${this.mode === 'panel' ? ' isPanel' : ' isPage'}${this.min ? ' isMin' : ''}`;
+    this.wrap.className = `wrap${panel ? ' isPanel' : ''}${this.min ? ' isMin' : ''}`;
     this.wrap.innerHTML = `
-      <div class="top">
-        ${this.mode === 'panel' ? '<span class="mark"></span><span class="ttl">НСИС — ответы</span>' : ''}
-        <span class="dot ${st.dot}"></span>
-        <span class="who">${esc(st.text)}${s.manager ? ' · <b>' + esc(s.manager) + '</b>' : ''}</span>
-        <span class="spacer"></span>
-        ${this.min ? `<span class="who">${c.saved} сегодня · ${c.errors} ошибок</span>` : ''}
+      <div class="card flat top">
+        <span class="sign"></span>
+        <span class="ttl">Ответы НСИС<span>раскладка и журнал</span></span>
+        <span class="mark">локальный инструмент, не сайт НСИС</span>
+        <span class="state"><span class="dot ${st.dot}"></span>${esc(st.text)}${
+          s.manager ? ' · <b>' + esc(shortFio(s.manager)) + '</b>' : ''
+        }</span>
         ${
-          this.mode === 'panel'
-            ? `<button class="btn icon" data-do="min">${this.min ? 'Развернуть' : 'Свернуть'}</button>
-               <button class="btn icon" data-do="close">×</button>`
+          panel
+            ? `<button class="btn sec sm" data-do="min">${this.min ? 'Развернуть' : 'Свернуть'}</button>
+               <button class="btn sec sm" data-do="close">×</button>`
             : ''
         }
       </div>
-      ${this.min ? '' : `<div class="body">${this.bodyHtml(s, c)}</div>`}
+      ${this.min ? '' : this.bodyHtml(s)}
     `;
     if (!this.min) this.renderRows();
   },
 
-  notesHtml(s) {
-    const notes = [];
-    if (s.folder === 'unsupported') {
-      notes.push(
-        `<div class="note"><b>Запись в папку недоступна</b>Браузер или политика запрещают странице писать на диск, поэтому файлы сохраняются в «Загрузки» — уже с правильными именами, но без раскладки по дням.</div>`
-      );
-    } else {
-      const needInbox = this.mode === 'page' && s.inbox === 'none';
-      if (s.folder === 'none' && needInbox) {
-        // При первом запуске незачем пугать двумя предупреждениями подряд.
-        notes.push(
-          `<div class="note"><b>Осталось указать две папки</b>
-           <b style="display:inline;font-weight:600">Куда складывать</b> — например «Рабочий стол\\НСИС»: внутри появятся папки по дням.
-           <b style="display:inline;font-weight:600">Откуда брать</b> — папка загрузок браузера: страница будет сама забирать оттуда новые ответы.
-           <br><button class="btn" data-do="folder">Папка НСИС</button> <button class="btn" data-do="inbox">Папка загрузок</button></div>`
-        );
-      } else if (s.folder === 'none') {
-        notes.push(
-          `<div class="note"><b>Куда складывать — не указано</b>Нажмите «Папка НСИС» и выберите, например, «Рабочий стол\\НСИС». Внутри появятся папки по дням. Пока папка не выбрана, файлы падают в «Загрузки» без раскладки.<br><button class="btn" data-do="folder">Папка НСИС</button></div>`
-        );
-      }
-      if (s.folder === 'denied') {
-        notes.push(
-          `<div class="note"><b>Подтвердите доступ к папке НСИС</b>Браузер спрашивает разрешение один раз за сеанс.<br><button class="btn" data-do="folder">Подтвердить</button></div>`
-        );
-      }
-      if (needInbox && s.folder !== 'none') {
-        notes.push(
-          `<div class="note"><b>Откуда брать ответы — не указано</b>Нажмите «Папка загрузок» и укажите папку, куда браузер сохраняет файлы (если поставлено расширение — «Загрузки\\nsis-inbox»). Страница будет сама забирать оттуда новые PDF. Файлы можно и просто перетащить сюда.<br><button class="btn" data-do="inbox">Папка загрузок</button></div>`
-        );
-      }
-      if (this.mode === 'page' && s.inbox === 'denied') {
-        notes.push(
-          `<div class="note"><b>Подтвердите доступ к папке загрузок</b>Разрешение спрашивается один раз за сеанс браузера.<br><button class="btn" data-do="inbox">Подтвердить</button></div>`
-        );
-      }
-    }
-    if (this.mode === 'panel' && s.nsis === 'session') {
-      notes.push(
-        `<div class="note"><b>Сессия НСИС истекла</b>Войдите в личный кабинет по УКЭП в этой же вкладке — приложение само заметит новую сессию, определит ФУ и продолжит с того места, где остановилось.</div>`
-      );
-    }
-    if (this.mode === 'page' && s.nsis === 'blocked') {
-      const b = s.bridge;
-      const result = !b
-        ? ''
-        : b.error
-        ? `<div class="sub" style="margin-top:8px;color:var(--brick)">${esc(b.error)}</div>`
-        : `<div class="sub" style="margin-top:8px">Обращений в списке: ${b.seen}, из них с готовым ответом: ${b.ready}. Запущено скачиваний: ${b.started}.${
-            b.ready && !b.started ? ' Всё это уже разложено раньше.' : ''
-          }</div>`;
-      notes.push(
-        `<div class="note calm"><b>Забрать ответы из НСИС</b>
-         Читать список кабинета с чужой страницы браузер не даёт, а открыть его вам — даёт. Поэтому так:
-         <br>1. Войдите в НСИС в соседней вкладке и нажмите «Открыть список».
-         <br>2. В открывшейся вкладке нажмите <b style="display:inline;font-weight:600">Ctrl+S</b> и сохраните файл в папку загрузок — страница подхватит его сама. Либо <b style="display:inline;font-weight:600">Ctrl+A</b>, <b style="display:inline;font-weight:600">Ctrl+C</b> и кнопка «Вставить список».
-         <br>3. Дальше всё само: скачивание, имена, папки, журнал.
-         <br><button class="btn" data-do="list">Открыть список НСИС</button>
-         <button class="btn" data-do="paste">Вставить список</button>${result}</div>`
-      );
-    }
-    if (this.mode === 'page' && (s.nsis === 'session' || s.nsis === 'down')) {
-      // Кабинет ответил кодом — значит читать его с этой страницы браузер
-      // разрешает, и всё заработает само, как только появится вход.
-      notes.push(
-        `<div class="note"><b>${s.nsis === 'session' ? 'НСИС отвечает, но вы не вошли' : 'НСИС отвечает ошибкой'}</b>Войдите в личный кабинет по УКЭП в соседней вкладке и нажмите «Проверить папку» — дальше страница будет забирать ответы сама, без всяких закладок.</div>`
-      );
-    }
-    if (s.lastError && s.nsis !== 'session' && s.nsis !== 'blocked') {
-      notes.push(`<div class="note"><b>${esc(s.lastError)}</b>Проверка повторится автоматически.</div>`);
-    }
-    return notes.join('');
-  },
-
-  bodyHtml(s, c) {
-    const managers = [...new Set(Core.state.entries.map((e) => e.manager).filter(Boolean))];
+  bodyHtml(s) {
     const panel = this.mode === 'panel';
+    const managers = [...new Set(Core.state.entries.map((e) => e.manager).filter(Boolean))];
     return `
       ${this.notesHtml(s)}
-      <div class="tiles">
-        <div class="tile"><div class="n">${s.busy ? '…' : c.news}</div><div class="l">${panel ? 'новых ответов' : 'в работе'}</div></div>
-        <div class="tile"><div class="n">${c.saved}</div><div class="l">разложено сегодня</div></div>
-        <div class="tile ${c.errors ? 'err' : ''}"><div class="n">${c.errors}</div><div class="l">ошибок</div></div>
-        <div class="tile"><div class="n">${c.skipped}</div><div class="l">пропущено</div></div>
-      </div>
-      <div class="acts">
-        <button class="btn pri" data-do="check" ${s.busy ? 'disabled' : ''}>${
+      <div class="card flat acts">
+        <button class="btn" data-do="check" ${s.busy ? 'disabled' : ''}>${
           s.busy ? 'Работаем…' : panel ? 'Проверить сейчас' : 'Проверить папку'
         }</button>
-        <button class="btn" data-do="auto">${
+        <button class="btn sec" data-do="auto">${
           s.auto ? (panel ? 'Остановить автопроверку' : 'Остановить слежение') : panel ? 'Включить автопроверку' : 'Включить слежение'
         }</button>
-        ${panel ? '' : `<button class="btn" data-do="inbox">${s.inbox === 'ready' ? 'Сменить папку загрузок' : 'Папка загрузок'}</button>`}
-        <button class="btn" data-do="folder">${s.folder === 'ready' ? 'Сменить папку НСИС' : 'Папка НСИС'}</button>
-        <button class="btn" data-do="cfg">Настройки</button>
-        <button class="btn" data-do="diag">Диагностика</button>
+        <button class="btn sec" data-do="rootPath">Путь к папке НСИС</button>
+        <button class="btn sec" data-do="cfg">${this.cfgOpen ? 'Скрыть настройки' : 'Настройки'}</button>
       </div>
-      ${this.cfgOpen ? this.cfgHtml(panel) : ''}
+      ${this.cfgOpen ? this.cfgHtml(s, panel) : ''}
       <div class="filters">
         <input class="q" data-filter="q" placeholder="Поиск по ФИО, делу или имени файла" value="${esc(this.filters.q)}">
-        <input type="text" data-filter="date" placeholder="день: ${folderForDay(new Date())}" value="${esc(this.filters.date)}" style="width:150px">
+        <input data-filter="date" placeholder="день: ${folderForDay(new Date())}" value="${esc(this.filters.date)}" style="max-width:160px">
         <select data-filter="status">
           <option value="">все статусы</option>
           ${Object.entries(STATUS)
@@ -389,33 +344,137 @@ export const UI = {
           ${managers.map((m) => `<option ${this.filters.manager === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}
         </select>
       </div>
-      <div id="rows"></div>
-      <div class="hint">${
+      <div class="hdr"><span>Должник</span><span>Дело</span><span>Ответ</span><span>Файл</span><span>Статус и действия</span></div>
+      <div id="rows" class="rows"></div>
+      <div class="foot"><div>Журнал лежит файлом <b>журнал.json</b> в папке с делами — поэтому эта страница и панель
+      в кабинете видят одни и те же записи. Файлы, ФИО и журнал остаются на этом компьютере.
+      ${
         panel
-          ? `Автопроверка работает, пока эта вкладка открыта${s.auto ? `, каждые ${Core.settings.intervalMin} мин` : ''}.`
-          : `Слежение за папкой работает, пока открыта эта страница${s.auto ? `, проверка каждые ${Core.settings.watchSec} с` : ''}.`
-      } Последняя проверка: ${s.lastCheck ? esc(new Date(s.lastCheck).toLocaleTimeString('ru-RU')) : '—'}.</div>
+          ? `Автопроверка работает, пока открыта вкладка${s.auto ? `, каждые ${Core.settings.intervalMin} мин` : ''}.`
+          : `Слежение работает, пока открыта эта страница${s.auto ? `, проверка каждые ${Core.settings.watchSec} с` : ''}.`
+      } Последняя проверка: ${s.lastCheck ? esc(new Date(s.lastCheck).toLocaleTimeString('ru-RU')) : '—'}.</div></div>
     `;
   },
 
-  cfgHtml(panel) {
-    const s = Core.settings;
+  notesHtml(s) {
+    const notes = [];
+    if (s.folder === 'unsupported') {
+      notes.push(
+        `<div class="note attn"><b>Запись в папку недоступна</b>Браузер или политика запрещают странице писать на диск, поэтому файлы сохраняются в «Загрузки» — с правильными именами, но без раскладки по дням.</div>`
+      );
+    } else {
+      const needInbox = this.mode === 'page' && s.inbox === 'none';
+      if (s.folder === 'none' && needInbox) {
+        notes.push(
+          `<div class="note attn"><b>Осталось указать две папки</b>
+           <b style="display:inline">Куда складывать</b> — например «Рабочий стол\\НСИС»: внутри появятся папки по дням.
+           <b style="display:inline">Откуда брать</b> — папка загрузок браузера.
+           <button class="btn" data-do="folder">Папка НСИС</button><button class="btn sec" data-do="inbox">Папка загрузок</button></div>`
+        );
+      } else if (s.folder === 'none') {
+        notes.push(
+          `<div class="note attn"><b>Куда складывать — не указано</b>Пока папка не выбрана, файлы падают в «Загрузки» без раскладки по дням.<button class="btn" data-do="folder">Папка НСИС</button></div>`
+        );
+      } else if (needInbox) {
+        notes.push(
+          `<div class="note attn"><b>Откуда брать ответы — не указано</b>Укажите папку загрузок браузера, и страница будет забирать оттуда новые PDF. Файлы можно и просто перетащить сюда.<button class="btn" data-do="inbox">Папка загрузок</button></div>`
+        );
+      }
+      for (const [which, label] of [['folder', 'папке НСИС'], ['inbox', 'папке загрузок']]) {
+        if (s[which] === 'denied') {
+          notes.push(
+            `<div class="note attn"><b>Подтвердите доступ к ${label}</b>Браузер спрашивает разрешение один раз за сеанс.<button class="btn" data-do="${which}">Подтвердить</button></div>`
+          );
+        }
+      }
+    }
+    if (this.mode === 'panel' && s.nsis === 'session') {
+      notes.push(
+        `<div class="note attn"><b>Сессия НСИС истекла</b>Войдите в кабинет по УКЭП в этой же вкладке — приложение само заметит новую сессию, определит ФУ и продолжит.</div>`
+      );
+    }
+    if (this.mode === 'page' && s.nsis === 'blocked') {
+      const b = s.bridge;
+      const result = !b
+        ? ''
+        : b.error
+        ? `<div class="sub" style="color:var(--redInk);margin-top:8px">${esc(b.error)}</div>`
+        : `<div class="sub" style="margin-top:8px">Обращений в списке: ${b.seen}, из них с готовым ответом: ${b.ready}. Запущено скачиваний: ${b.started}.${
+            b.ready && !b.started ? ' Всё это уже разложено раньше.' : ''
+          }</div>`;
+      notes.push(
+        `<div class="note"><b>Забрать ответы из НСИС</b>Читать список кабинета с этой страницы браузер не даёт, а открыть его вам — даёт.
+         <ol class="steps">
+           <li>Войдите в НСИС в соседней вкладке и нажмите <b>«Открыть список»</b>.</li>
+           <li>В открывшейся вкладке — <b>Ctrl+S</b> в папку загрузок, либо <b>Ctrl+A</b>, <b>Ctrl+C</b> и «Вставить список».</li>
+           <li>Дальше само: скачивание, имена, папки по дням, журнал.</li>
+         </ol>
+         <button class="btn" data-do="list">Открыть список НСИС</button><button class="btn sec" data-do="paste">Вставить список</button>${result}</div>`
+      );
+    }
+    if (this.mode === 'page' && (s.nsis === 'session' || s.nsis === 'down')) {
+      notes.push(
+        `<div class="note attn"><b>${
+          s.nsis === 'session' ? 'НСИС отвечает, но вы не вошли' : 'НСИС отвечает ошибкой'
+        }</b>Войдите в кабинет по УКЭП в соседней вкладке и нажмите «Проверить папку» — дальше страница будет забирать ответы сама.</div>`
+      );
+    }
+    if (s.lastError && s.nsis !== 'session' && s.nsis !== 'blocked') {
+      notes.push(`<div class="note bad"><b>${esc(s.lastError)}</b>Проверка повторится автоматически.</div>`);
+    }
+    return notes.join('');
+  },
+
+  cfgHtml(s, panel) {
+    const c = Core.settings;
+    const n = Core.counters();
     return `
-      <div class="cfg">
-        ${
-          panel
-            ? `<div><label>Интервал автопроверки, мин</label><input type="number" min="1" max="600" data-cfg="intervalMin" value="${s.intervalMin}"></div>
-               <div><label>Параллельных загрузок</label><input type="number" min="1" max="8" data-cfg="concurrency" value="${s.concurrency}"></div>
-               <div><label>Страниц журнала за проверку</label><input type="number" min="1" max="20" data-cfg="deepPages" value="${s.deepPages}"></div>`
-            : `<div><label>Проверять папку раз в, секунд</label><input type="number" min="3" max="600" data-cfg="watchSec" value="${s.watchSec}"></div>`
-        }
-        <div><label>Повторов при ошибке</label><input type="number" min="1" max="10" data-cfg="retries" value="${s.retries}"></div>
-        <label class="chk"><input type="checkbox" data-cfg="withCase" ${s.withCase ? 'checked' : ''}> номер дела в имени файла</label>
-        ${
-          panel
-            ? ''
-            : `<label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${s.moveFromInbox ? 'checked' : ''}> убирать разложенное из папки загрузок</label>`
-        }
+      <div class="card cfg">
+        <div>
+          <h3>Сводка</h3>
+          <div class="stats">
+            <div class="stat ok"><div class="n">${n.saved}</div><div class="l">разложено сегодня</div></div>
+            <div class="stat err"><div class="n">${n.errors}</div><div class="l">ошибок</div></div>
+            <div class="stat"><div class="n">${n.skipped}</div><div class="l">пропущено</div></div>
+            <div class="stat"><div class="n">${Core.state.entries.length}</div><div class="l">всего в журнале</div></div>
+          </div>
+        </div>
+        <div>
+          <h3>Папки</h3>
+          <div class="acts">
+            <button class="btn sec" data-do="folder">${s.folder === 'ready' ? 'Сменить папку НСИС' : 'Выбрать папку НСИС'}</button>
+            ${panel ? '' : `<button class="btn sec" data-do="inbox">${s.inbox === 'ready' ? 'Сменить папку загрузок' : 'Выбрать папку загрузок'}</button>`}
+          </div>
+          <div class="grid" style="margin-top:12px">
+            <div style="grid-column:1/-1">
+              <label>Полный путь к папке НСИС — чтобы кнопки копировали готовый путь для проводника и 1С</label>
+              <input type="text" data-cfg-text="rootPath" placeholder="C:\\Users\\Имя\\Desktop\\НСИС" value="${esc(c.rootPath || '')}">
+            </div>
+          </div>
+          <div class="path">Браузер не сообщает странице, где лежит выбранная папка, и открыть проводник не может — поэтому путь указывается здесь один раз.</div>
+        </div>
+        <div>
+          <h3>Работа</h3>
+          <div class="grid">
+            ${
+              panel
+                ? `<div><label>Интервал автопроверки, мин</label><input type="number" min="1" max="600" data-cfg="intervalMin" value="${c.intervalMin}"></div>
+                   <div><label>Параллельных загрузок</label><input type="number" min="1" max="8" data-cfg="concurrency" value="${c.concurrency}"></div>
+                   <div><label>Страниц журнала за проверку</label><input type="number" min="1" max="20" data-cfg="deepPages" value="${c.deepPages}"></div>`
+                : `<div><label>Проверять папку раз в, секунд</label><input type="number" min="3" max="600" data-cfg="watchSec" value="${c.watchSec}"></div>`
+            }
+            <div><label>Повторов при ошибке</label><input type="number" min="1" max="10" data-cfg="retries" value="${c.retries}"></div>
+          </div>
+          <div class="acts" style="margin-top:12px">
+            <label class="chk"><input type="checkbox" data-cfg="withCase" ${c.withCase ? 'checked' : ''}> номер дела в имени файла</label>
+            ${panel ? '' : `<label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${c.moveFromInbox ? 'checked' : ''}> убирать разложенное из папки загрузок</label>`}
+          </div>
+        </div>
+        <div>
+          <h3>Если что-то не так</h3>
+          <div class="acts"><button class="btn sec" data-do="diag">Собрать отчёт о состоянии</button></div>
+          <div id="diag"></div>
+        </div>
       </div>
     `;
   },
@@ -432,45 +491,61 @@ export const UI = {
       }</div>`;
       return;
     }
-    host.innerHTML = `
-      <table>
-        <colgroup>
-          <col><col style="width:126px"><col style="width:94px"><col style="width:190px">
-          <col style="width:132px"><col style="width:118px"><col style="width:142px">
-        </colgroup>
-        <thead><tr>
-          <th>Должник</th><th>Дело</th><th>Ответ</th><th>Файл</th><th>ФУ</th><th>Статус</th><th></th>
-        </tr></thead>
-        <tbody>
-          ${rows.map((e) => this.rowHtml(e)).join('')}
-        </tbody>
-      </table>`;
+    host.innerHTML = rows.map((e) => this.rowHtml(e)).join('');
   },
 
   rowHtml(e) {
-    // У ошибки ФИО ещё неизвестно — там нечего писать, «Не определено» только
-    // у сохранённых файлов, у которых разбор не дал результата.
+    // У ошибки ФИО ещё неизвестно — «Не определено» только там, где файл
+    // сохранён, а разбор не дал результата.
     const fio = (e.fio || []).join(', ') || (e.status === 'error' ? '—' : 'Не определено');
     const birth = e.birth && Object.values(e.birth)[0] ? Object.values(e.birth)[0] : '';
-    const st = STATUS[e.status] || e.status;
+    const inFolder = e.place === 'folder' && e.fileName;
+    const sub = [birth ? `${birth} г. р.` : '', shortFio(e.manager)].filter(Boolean).join(' · ');
     return `
-      <tr>
-        <td><div class="fio">${esc(fio)}</div>${birth ? `<div class="sub">${esc(birth)} г. р.</div>` : ''}</td>
-        <td class="nw">${esc(e.caseNo || '—')}</td>
-        <td class="nw">${esc(e.answerDate || dateOf(e.createDate) || '—')}</td>
-        <td class="file">${
+      <div class="row">
+        <div><div class="who cell" title="${esc(fio)}">${esc(fio)}</div>${sub ? `<div class="sub cell">${esc(sub)}</div>` : ''}</div>
+        <div class="cell">${esc(e.caseNo || '—')}</div>
+        <div class="cell">${esc(e.answerDate || dateOf(e.createDate) || '—')}</div>
+        <div>${
           e.fileName
-            ? `<div class="cell" title="${esc(e.fileName)}">${esc(e.fileName)}</div><div class="cell sub" title="${esc(e.path || '')}">${esc(e.path || '')}</div>`
-            : '<span class="sub">—</span>'
-        }</td>
-        <td class="fu"><div class="cell" title="${esc(e.manager || '')}">${esc(shortFio(e.manager) || '—')}</div></td>
-        <td><span class="st ${STATUS_CLASS[e.status] || ''}">${esc(st)}</span>
-          ${e.error ? `<div class="sub">${esc(e.error)}${e.attempts ? `, попыток: ${e.attempts}` : ''}</div>` : ''}</td>
-        <td><div class="rowacts">
-          ${e.fileName && e.place === 'folder' && Core.state.folder === 'ready' ? `<button class="btn icon" data-do="open" data-id="${esc(e.requestId)}">Открыть</button>` : ''}
-          ${e.path ? `<button class="btn icon" data-do="path" data-id="${esc(e.requestId)}" title="Скопировать путь к файлу">Путь</button>` : ''}
-          <button class="btn icon" data-do="again" data-id="${esc(e.requestId)}" title="Сделать ещё одну копию файла">Ещё раз</button>
-        </div></td>
-      </tr>`;
+            ? `<div class="cell" title="${esc(e.fileName)}">${esc(e.fileName)}</div><div class="sub cell" title="${esc(Core.fullPath(e))}">${esc(Core.fullPath(e))}</div>`
+            : `<div class="sub">${esc(e.error || '—')}</div>`
+        }</div>
+        <div class="right">
+          <span class="st ${STATUS_CLASS[e.status] || ''}">${esc(STATUS[e.status] || e.status)}</span>
+          ${inFolder && Core.state.folder === 'ready' ? `<button class="btn sec sm" data-do="open" data-id="${esc(e.requestId)}">Открыть</button>` : ''}
+          ${e.fileName ? `<button class="btn sec sm" data-do="filePath" data-id="${esc(e.requestId)}" title="Скопировать полный путь к файлу">Путь</button>` : ''}
+          ${inFolder ? `<button class="btn sec sm" data-do="dayPath" data-id="${esc(e.requestId)}" title="Скопировать путь к папке с этим файлом">Папка</button>` : ''}
+          <button class="btn sec sm" data-do="again" data-id="${esc(e.requestId)}" title="Сделать ещё одну копию файла">Ещё раз</button>
+        </div>
+        ${e.error && e.fileName ? `<div class="sub" style="grid-column:1/-1">${esc(e.error)}${e.attempts ? `, попыток: ${e.attempts}` : ''}</div>` : ''}
+      </div>`;
+  },
+
+  /*
+   * Отчёт показываем прямо в настройках и кладём в буфер: на рабочем
+   * компьютере консоль открывать неудобно, а переслать текст — просто.
+   */
+  async showDiag() {
+    const host = this.wrap.querySelector('#diag');
+    if (host) host.innerHTML = '<div class="sub" style="margin-top:10px">Собираем отчёт…</div>';
+    let text;
+    try {
+      text = await report();
+    } catch (e) {
+      text = 'Диагностика не собралась: ' + ((e && e.message) || e);
+    }
+    let copied = '';
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = ' Он уже в буфере обмена.';
+    } catch {
+      copied = ' Выделите текст и скопируйте вручную.';
+    }
+    const box = this.wrap.querySelector('#diag');
+    if (box) {
+      box.innerHTML = `<div class="sub" style="margin-top:10px">Личных данных в отчёте нет: строки с русскими буквами заменены на пометку о длине.${copied}</div><textarea readonly></textarea>`;
+      box.querySelector('textarea').value = text;
+    }
   },
 };
