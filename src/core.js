@@ -38,9 +38,16 @@ export const HUMAN = {
 
 export const STATUS = {
   saved: 'Разложено',
-  no_fio: 'ФИО не определено',
-  duplicate: 'Пропущено (дубликат)',
+  no_fio: 'Без ФИО',
+  duplicate: 'Дубликат',
   error: 'Ошибка',
+};
+
+/** Как статусы назывались раньше — чтобы прочитать старый журнал из папки. */
+const STATUS_WAS = {
+  'ФИО не определено': 'no_fio',
+  'Пропущено (дубликат)': 'duplicate',
+  Скачано: 'saved',
 };
 
 const DEFAULTS = {
@@ -672,7 +679,7 @@ export const Core = {
     const byStatus = Object.entries(STATUS).find(([, v]) => v === r.статус);
     return {
       requestId: r.обращение,
-      status: byStatus ? byStatus[0] : 'saved',
+      status: byStatus ? byStatus[0] : STATUS_WAS[r.статус] || 'saved',
       fio: fio && fio !== 'Не определено' ? fio.split(',').map((s) => s.trim()) : [],
       birth: r.датаРождения || {},
       caseNo: r.дело || null,

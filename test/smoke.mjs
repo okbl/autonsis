@@ -141,10 +141,11 @@ ok('файл отдан на загрузку (папки в jsdom нет)', dow
 ok('статус НСИС — в порядке', app.core.state.nsis === 'ok', app.core.state.nsis);
 
 const shadow = dom.window.document.getElementById('nsis-auto-panel').shadowRoot.innerHTML;
-ok('панель показывает ФУ', shadow.includes('Щенников Алексей Дмитриевич'));
+// В шапке ФУ показан коротко — «Щенников А. Д.», полное имя в журнале.
+ok('панель показывает ФУ', shadow.includes('Щенников А. Д.'), shadow.slice(0, 300));
 ok('панель показывает должника', shadow.includes('Борцов Николай Валерьевич'));
 ok('панель показывает кнопку проверки', shadow.includes('Проверить сейчас'));
-ok('панель предупреждает про папку', shadow.includes('Запись в папку недоступна'));
+ok('панель предупреждает про папку', shadow.includes('Папки недоступны'));
 ok('у записи есть кнопка пути к файлу', shadow.includes('data-do="filePath"'), shadow.slice(0, 200));
 
 // повторная проверка не должна скачивать то же ещё раз
@@ -208,10 +209,10 @@ ok('недоступность НСИС распознана', pageApp.core.stat
 const pageShadow = () => site.window.document.getElementById('nsis-auto-panel').shadowRoot.innerHTML;
 ok('есть кнопка настроек', pageShadow().includes('Настройки'));
 // Мост переехал в настройки — на главном экране его быть не должно.
-ok('моста на главном экране нет', !pageShadow().includes('Открыть список НСИС'));
+ok('моста на главном экране нет', !pageShadow().includes('Открыть список'));
 pageApp.ui.cfgOpen = true;
 pageApp.ui.render();
-ok('мост есть в настройках', pageShadow().includes('Открыть список НСИС'));
+ok('мост есть в настройках', pageShadow().includes('Открыть список'));
 ok('сводка есть в настройках', pageShadow().includes('разложено сегодня'));
 pageApp.ui.cfgOpen = false;
 pageApp.ui.render();

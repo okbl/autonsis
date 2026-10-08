@@ -85,8 +85,9 @@ p,li{color:var(--ink-2)}
 b,strong{color:var(--ink)}
 code{background:var(--surface-2);border-radius:5px;padding:1px 5px;font-size:13.5px}
 .card{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:18px 20px;margin:14px 0}
-details.card>summary{cursor:pointer;list-style:none;font-size:17px;font-weight:600;letter-spacing:-.015em;
+details.card>summary{cursor:pointer;list-style:none;font-size:16px;font-weight:600;letter-spacing:-.015em;
   display:flex;align-items:center;gap:9px;color:var(--ink)}
+details.card.small>summary{font-size:15px}
 details.card>summary::-webkit-details-marker{display:none}
 details.card .caret{width:7px;height:7px;border-right:2px solid var(--acc);border-bottom:2px solid var(--acc);
   transform:rotate(45deg);transition:transform .18s;margin-bottom:3px}
@@ -101,9 +102,11 @@ details.card>summary+*{margin-top:12px}
 ol{padding-left:22px}
 ol li{margin:6px 0}
 .small{font-size:13.5px}
-.drop{border:1.5px dashed var(--line-2);border-radius:var(--r);padding:14px 18px;margin:14px 0;
-  color:var(--ink-3);font-size:13.5px;text-align:center}
-body.isDrag .drop{border-color:var(--acc);color:var(--acc);background:#E6ECF5}
+.drop{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(16px);opacity:0;
+  pointer-events:none;transition:opacity .15s,transform .15s;
+  background:var(--acc);color:#fff;border-radius:999px;padding:12px 26px;font-size:14px;font-weight:600;
+  box-shadow:0 14px 30px -12px #0a4fca99}
+body.isDrag .drop{opacity:1;transform:translateX(-50%)}
 pre{display:none}
 .foot{color:var(--ink-3);font-size:12.5px;margin-top:22px}
 </style>
@@ -112,51 +115,32 @@ pre{display:none}
 <div class="page">
   <div id="nsis-app"></div>
 
-  <div class="drop">Можно просто перетащить PDF сюда — разберём и разложим</div>
+  <div class="drop">Отпустите — разберём и разложим</div>
 
-  <details class="card" open>
-    <summary><span class="caret"></span>Не нажимать «Скачать» вручную</summary>
-    <p>Эта страница не может обращаться к НСИС: сессия кабинета принадлежит его адресу,
-    и браузер не отдаёт её чужой странице. Зато на самой странице кабинета может работать
-    закладка. Включите панель закладок (<code>Ctrl+Shift+B</code>) и перетащите на неё:</p>
+  <details class="card">
+    <summary><span class="caret"></span>Забирать ответы без кнопки «Скачать»</summary>
+    <p>Закладка работает на странице кабинета: находит готовые ответы, скачивает их в папку
+    загрузок, остальное делает эта страница. Политика браузера может её не пустить — тогда
+    способ не сработает, и ответы скачиваются в кабинете как обычно.</p>
     <p><a class="bmk" href="${grabmark.replace(/"/g, '&quot;')}">Забрать ответы НСИС</a>
-       <span class="small">&nbsp;${(grabmark.length / 1024).toFixed(1)} КБ</span></p>
-    <p>Откройте <code>lk.nsis.ru/requestLog</code>, войдите по УКЭП, нажмите закладку — она
-    скачает все готовые ответы в папку загрузок и скажет сколько. Разложит их уже эта
-    страница: имена, папки по дням, журнал. Обработанные обращения закладка запоминает и
-    второй раз не качает.</p>
-    <p class="small">Браузер может один раз спросить разрешение на скачивание нескольких
-    файлов — разрешите. Если закладка не срабатывает совсем, её запрещает политика браузера,
-    и тогда остаётся скачивать ответы в кабинете как обычно: страница всё равно их подхватит.</p>
-
-    <p class="small"><b>Вариант потяжелее:</b> та же панель, что и здесь, но прямо поверх
-    кабинета — с журналом, автопроверкой каждые 15 минут и раскладкой без участия этой
-    страницы. Весит ${(bookmarklet.length / 1024).toFixed(0)} КБ, и не всякий браузер примет такую
-    закладку.<br>
-    <a class="bmk" style="margin-top:8px" href="${bookmarklet.replace(/"/g, '&quot;')}">НСИС — панель в кабинете</a></p>
-    <p class="small">Тот же код можно положить сниппетом DevTools (<code>F12</code> →
-    <b>Sources</b> → <b>Snippets</b>), если режим разработчика не закрыт политикой:
-    <button class="btn" id="copy">Скопировать код</button> <span id="done"></span></p>
+       <span class="small">&nbsp;перетащите на панель закладок, ${(grabmark.length / 1024).toFixed(1)} КБ</span></p>
+    <p class="small">Тяжёлый вариант — та же панель прямо в кабинете, с автопроверкой:
+       <a class="bmk" href="${bookmarklet.replace(/"/g, '&quot;')}">Панель в кабинете</a>
+       &nbsp;${(bookmarklet.length / 1024).toFixed(0)} КБ. Тот же код сниппетом DevTools:
+       <button class="btn" id="copy">Скопировать код</button> <span id="done"></span></p>
     <pre id="code"></pre>
   </details>
 
   <details class="card">
     <summary><span class="caret"></span>Совсем без нажатий — расширение</summary>
-    <p>Закладка работает только когда её нажали, и только если политика браузера это
-    позволяет. Расширение проверяет НСИС само — раз в 15 минут, без открытых вкладок и
-    без единого клика — и складывает ответы в <code>Загрузки\nsis-inbox</code>, откуда их
-    забирает эта страница.</p>
-    <p>Ставится администратором политикой браузера, тем же способом, которым раскатан сам
-    Chromium GOST: программ на компьютере не появляется. Разрешения — только скачивание,
-    память о скачанном, будильник и единственный адрес <code>bff.nsis.ru</code>;
-    content-script'ов нет, страницы оно не читает.</p>
+    <p>Проверяет НСИС само, раз в 15 минут, и складывает ответы в <code>Загрузки\nsis-inbox</code>.
+    Ставится администратором политикой браузера; программ на компьютере не появляется.</p>
     <p><a class="btn" href="nsis-extension.zip" download>Скачать расширение (.zip)</a></p>
-    <p class="small">Как упаковать, какой политикой поставить и готовый текст заявки в ИТ —
-    в <code>docs/EXTENSION.md</code> в репозитории.</p>
+    <p class="small">Установка и готовый текст заявки в ИТ — в <code>docs/EXTENSION.md</code>.</p>
   </details>
 
-  <div class="card small">
-    <h2>Как это работает</h2>
+  <details class="card small">
+    <summary><span class="caret"></span>Как это работает</summary>
     <p>Скачивайте ответы в кабинете как обычно — приложение заберёт их из папки загрузок,
     прочитает из PDF ФИО должника, дату рождения и номер дела, назовёт файл по-человечески
     и разложит по папкам за день.</p>
@@ -167,7 +151,7 @@ pre{display:none}
     <p>Приложение не создаёт запросы в НСИС, не ходит в 1С, не трогает УКЭП, сертификаты
     и пароли и ничего не удаляет само — кроме файлов, которые убирает из папки загрузок
     после раскладки, и это отключается в настройках.</p>
-  </div>
+  </details>
 
 </div>
 <script>${bundle.replace(/<\/script/gi, '<\\/script')}</script>
