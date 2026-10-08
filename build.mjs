@@ -187,18 +187,13 @@ for (const name of ['index.html', 'НСИС — ответы.html']) {
 
 const kb = (s) => (s.length / 1024).toFixed(1) + ' КБ';
 
-// Макеты интерфейса и схемы — статичные файлы, логики в них нет; кладём рядом,
-// чтобы их можно было открыть по адресу с рабочего компьютера.
+// Макеты интерфейса — статичные страницы, логики в них нет; кладём рядом,
+// чтобы их можно было открыть по адресу и сравнить с рабочим приложением.
 const designDir = path.join(root, 'design');
 if (fs.existsSync(designDir)) {
-  const flat = fs.readdirSync(designDir).filter((n) => /\.(html|svg|pdf)$/.test(n));
-  for (const name of flat) {
+  for (const name of fs.readdirSync(designDir).filter((n) => n.endsWith('.html'))) {
     fs.copyFileSync(path.join(designDir, name), path.join(root, 'dist', name));
-    console.log(`dist/${name}`.padEnd(29) + kb({ length: fs.statSync(path.join(designDir, name)).size }));
-  }
-  // Латинские имена рядом с русскими: такой адрес проще передать и набрать.
-  for (const [from, to] of [['обмен.svg', 'scheme.svg'], ['НСИС — автозапросы.pdf', 'nsis-auto.pdf']]) {
-    if (flat.includes(from)) fs.copyFileSync(path.join(designDir, from), path.join(root, 'dist', to));
+    console.log(`dist/${name}`.padEnd(29) + kb(fs.readFileSync(path.join(designDir, name), 'utf8')));
   }
 }
 
