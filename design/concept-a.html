@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Макет А — «Продолжение кабинета»</title>
+<!--
+  Статичный макет: только разметка и оформление, никакой логики.
+  Данные вымышленные. Палитра и приёмы взяты из CSS самого кабинета НСИС:
+  акцент #0A4FCA, глубокий синий #162F5A, фон #F2F5FA, шрифт Onest,
+  кнопки-пилюли, крупные скругления, тень 0 8px 16px -4px #2f35411a.
+-->
+<style>
+:root{
+  /* палитра НСИС, имена — как у них */
+  --scienceBlue:#0A4FCA; --smalt:#003D99; --biscay:#162F5A; --cello:#1C2F54;
+  --tuna:#2F3541; --shuttle:#575D69; --waterloo:#7E8492; --celloA25:#1C2F5440;
+  --whiteLilac:#F2F5FA; --athens:#ECEEF2; --catskill:#E6ECF5; --linkWater:#E5EBF6;
+  --niagara:#09B37B; --iceberg:#E1F5EF;
+  --tangerine:#F38B00; --oldLace:#FDF1E0;
+  --crimson:#EB3333; --provincial:#FDEBEB;
+  --shadow:0 8px 16px -4px #2f35411a,0 4px 8px 0 #2f35410d;
+  --r:20px; --rLg:28px; --pill:999px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--whiteLilac);color:var(--tuna);
+  font-family:Onest,"Segoe UI",system-ui,sans-serif;font-size:15px;line-height:1.5;
+  font-variant-numeric:tabular-nums}
+.page{max-width:1160px;margin:0 auto;padding:22px 20px 56px}
+
+/* ---------- шапка ---------- */
+.top{display:flex;align-items:center;gap:14px;background:#fff;border-radius:var(--rLg);
+  padding:16px 22px;box-shadow:var(--shadow);margin-bottom:16px}
+.logo{display:flex;align-items:center;gap:10px;flex:none}
+.logo .sign{width:34px;height:34px;border-radius:11px;background:var(--biscay);position:relative;flex:none}
+.logo .sign:after{content:"";position:absolute;inset:7px 7px auto 7px;height:4px;border-radius:2px;background:var(--scienceBlue)}
+.logo .sign:before{content:"";position:absolute;inset:auto 7px 7px 7px;height:10px;border-radius:3px;background:#ffffff40}
+.logo b{font-size:17px;letter-spacing:-.01em}
+.logo span{display:block;font-size:11.5px;color:var(--waterloo);line-height:1.2}
+.top .who{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--shuttle)}
+.top .who b{color:var(--tuna)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--niagara);flex:none}
+
+/* ---------- карточки ---------- */
+.card{background:#fff;border-radius:var(--rLg);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:16px}
+.card h2{margin:0 0 4px;font-size:17px;letter-spacing:-.01em}
+.card p{margin:0;color:var(--shuttle);font-size:14px}
+.lead{color:var(--shuttle);margin:0 0 16px;max-width:76ch;font-size:14.5px}
+
+/* ---------- кнопки ---------- */
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:var(--pill);
+  padding:11px 22px;font:inherit;font-size:14px;cursor:pointer;background:var(--scienceBlue);color:#fff;font-weight:600}
+.btn:hover{background:var(--smalt)}
+.btn.sec{background:#fff;color:var(--tuna);border-color:var(--celloA25);font-weight:400}
+.btn.sec:hover{border-color:var(--scienceBlue);color:var(--scienceBlue)}
+.btn.sm{padding:7px 14px;font-size:13px}
+.acts{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* ---------- забрать из НСИС ---------- */
+.grab{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center}
+.steps{counter-reset:s;margin:10px 0 0;padding:0;list-style:none;display:grid;gap:7px}
+.steps li{counter-increment:s;position:relative;padding-left:30px;color:var(--shuttle);font-size:14px}
+.steps li:before{content:counter(s);position:absolute;left:0;top:1px;width:21px;height:21px;border-radius:50%;
+  background:var(--catskill);color:var(--biscay);font-size:12px;font-weight:600;display:grid;place-items:center}
+.steps b{color:var(--tuna);font-weight:600}
+.grab .side{display:grid;gap:10px;justify-items:stretch;min-width:220px}
+
+/* ---------- плитки ---------- */
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+.tile{background:#fff;border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px}
+.tile .n{font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.tile .l{font-size:12px;color:var(--waterloo);margin-top:3px}
+.tile.ok .n{color:var(--niagara)}
+.tile.err .n{color:var(--crimson)}
+.tile.warn .n{color:var(--tangerine)}
+
+/* ---------- фильтры ---------- */
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+input,select{font:inherit;font-size:14px;color:var(--tuna);background:#fff;border:1px solid var(--celloA25);
+  border-radius:var(--pill);padding:10px 16px;min-width:150px}
+input:focus,select:focus{outline:none;border-color:var(--scienceBlue);box-shadow:0 0 0 3px #0a4fca1f}
+input.q{flex:1 1 280px}
+
+/* ---------- журнал карточками, как requestLogCard ---------- */
+.row{background:#fff;border-radius:var(--r);box-shadow:var(--shadow);padding:16px 20px;margin-bottom:10px;
+  display:grid;grid-template-columns:minmax(200px,1.3fr) 150px 110px minmax(180px,1.4fr) 330px;gap:16px;align-items:center}
+.row .who{font-weight:600}
+.row .sub{color:var(--waterloo);font-size:12.5px;margin-top:2px}
+.row .case{color:var(--shuttle);font-size:14px}
+.row .file{overflow:hidden}
+.row .file div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .right{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.st{display:inline-flex;align-items:center;gap:7px;border-radius:var(--pill);padding:6px 14px;font-size:13px;white-space:nowrap}
+.st:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.st.ok{background:var(--iceberg);color:#0b7a56}
+.st.warn{background:var(--oldLace);color:#9a5a00}
+.st.err{background:var(--provincial);color:#b32020}
+.st.skip{background:var(--athens);color:var(--shuttle)}
+.hdr{display:grid;grid-template-columns:minmax(200px,1.3fr) 150px 110px minmax(180px,1.4fr) 330px;gap:16px;
+  padding:0 20px 8px;font-size:11.5px;color:var(--waterloo);text-transform:uppercase;letter-spacing:.06em}
+
+/* ---------- подвал ---------- */
+.foot{margin-top:26px;background:var(--biscay);color:#fff;border-radius:var(--rLg);padding:20px 24px;
+  display:flex;gap:18px;align-items:center;flex-wrap:wrap;position:relative;overflow:hidden}
+.foot:after{content:"";position:absolute;right:-60px;top:-80px;width:280px;height:280px;border-radius:50%;
+  background:var(--scienceBlue);opacity:.5}
+.foot div{position:relative;z-index:1;font-size:13.5px;color:#ffffffcc;max-width:70ch}
+.foot b{color:#fff}
+.mark{font-size:11.5px;color:var(--waterloo);border:1px solid var(--celloA25);border-radius:var(--pill);padding:4px 11px}
+@media (max-width:980px){
+  .tiles{grid-template-columns:repeat(2,1fr)}
+  .row,.hdr{grid-template-columns:1fr;gap:8px}
+  .hdr{display:none}
+  .grab{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="top">
+    <div class="logo">
+      <span class="sign"></span>
+      <div><b>Ответы НСИС</b><span>раскладка и журнал</span></div>
+    </div>
+    <span class="mark">локальный инструмент, не сайт НСИС</span>
+    <div class="who"><span class="dot"></span> следим за папкой загрузок · <b>Петров П. П.</b></div>
+  </div>
+
+  <div class="card grab">
+    <div>
+      <h2>Забрать ответы из НСИС</h2>
+      <p>Читать список кабинета с этой страницы браузер не даёт, а открыть его вам — даёт.</p>
+      <ol class="steps">
+        <li>Войдите в НСИС в соседней вкладке и нажмите <b>«Открыть список»</b>.</li>
+        <li>В открывшейся вкладке — <b>Ctrl+S</b> в папку загрузок, либо <b>Ctrl+A</b>, <b>Ctrl+C</b> и «Вставить список».</li>
+        <li>Дальше само: скачивание, имена, папки по дням, журнал.</li>
+      </ol>
+    </div>
+    <div class="side">
+      <button class="btn">Открыть список НСИС</button>
+      <button class="btn sec">Вставить список</button>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="n">2</div><div class="l">в работе</div></div>
+    <div class="tile ok"><div class="n">7</div><div class="l">разложено сегодня</div></div>
+    <div class="tile err"><div class="n">1</div><div class="l">ошибок</div></div>
+    <div class="tile"><div class="n">3</div><div class="l">пропущено</div></div>
+  </div>
+
+  <div class="card">
+    <div class="acts">
+      <button class="btn">Проверить папку</button>
+      <button class="btn sec">Остановить слежение</button>
+      <button class="btn sec">Папка загрузок</button>
+      <button class="btn sec">Папка НСИС</button>
+      <button class="btn sec">Настройки</button>
+      <button class="btn sec">Диагностика</button>
+    </div>
+  </div>
+
+  <div class="filters">
+    <input class="q" placeholder="Поиск по ФИО, делу или имени файла">
+    <input value="08.10.2026" style="max-width:150px">
+    <select><option>все статусы</option></select>
+    <select><option>все ФУ</option></select>
+  </div>
+
+  <div class="hdr"><span>Должник</span><span>Дело</span><span>Ответ</span><span>Файл</span><span style="text-align:right">Статус и действия</span></div>
+
+  <div class="row">
+    <div><div class="who">Сидоров Сидор Сидорович</div><div class="sub">15.03.1991 г. р. · Петров П. П.</div></div>
+    <div class="case">А50-26151/2025</div>
+    <div class="case">15.09.2026</div>
+    <div class="file"><div>Сидоров Сидор Сидорович — А50-26151-2025 — 08.10.2026 09-14-02.pdf</div><div class="sub">08.10.2026\Сидоров…</div></div>
+    <div class="right"><span class="st ok">Разложено</span><button class="btn sec sm">Открыть</button><button class="btn sec sm">Ещё раз</button></div>
+  </div>
+
+  <div class="row">
+    <div><div class="who">Кузнецова Анна Сергеевна</div><div class="sub">02.07.1984 г. р. · Петров П. П.</div></div>
+    <div class="case">А50-14022/2025</div>
+    <div class="case">02.09.2026</div>
+    <div class="file"><div>Кузнецова Анна Сергеевна — А50-14022-2025 — 08.10.2026 09-14-03.pdf</div><div class="sub">08.10.2026\Кузнецова…</div></div>
+    <div class="right"><span class="st ok">Разложено</span><button class="btn sec sm">Открыть</button><button class="btn sec sm">Ещё раз</button></div>
+  </div>
+
+  <div class="row">
+    <div><div class="who">Не определено</div><div class="sub">ФИО в письме не нашлось · Петров П. П.</div></div>
+    <div class="case">—</div>
+    <div class="case">21.08.2026</div>
+    <div class="file"><div>Не определено — 08.10.2026 09-14-05.pdf</div><div class="sub">08.10.2026\Не определено…</div></div>
+    <div class="right"><span class="st warn">ФИО не определено</span><button class="btn sec sm">Вписать ФИО</button></div>
+  </div>
+
+  <div class="row">
+    <div><div class="who">Мельников Пётр Алексеевич</div><div class="sub">дубликат ответа от 12.08.2026 · Петров П. П.</div></div>
+    <div class="case">А50-9871/2024</div>
+    <div class="case">21.08.2026</div>
+    <div class="file"><div class="sub">файл не сохранён — уже есть такой же</div></div>
+    <div class="right"><span class="st skip">Пропущено</span><button class="btn sec sm">Показать первый</button></div>
+  </div>
+
+  <div class="row">
+    <div><div class="who">—</div><div class="sub">обращение 7f3c… · попыток: 3</div></div>
+    <div class="case">—</div>
+    <div class="case">17.09.2026</div>
+    <div class="file"><div class="sub">Ошибка скачивания · НСИС ответил 500</div></div>
+    <div class="right"><span class="st err">Ошибка</span><button class="btn sec sm">Повторить</button></div>
+  </div>
+
+  <div class="foot">
+    <div>Журнал лежит файлом <b>журнал.json</b> в папке с делами — поэтому эта страница и панель в кабинете
+    видят одни и те же записи. Файлы, ФИО и журнал остаются на этом компьютере: страница ничего не
+    отправляет наружу и работает без интернета.</div>
+  </div>
+
+</div>
+</body>
+</html>

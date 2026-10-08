@@ -208,6 +208,17 @@ for (const name of ['index.html', 'НСИС — ответы.html']) {
 }
 
 const kb = (s) => (s.length / 1024).toFixed(1) + ' КБ';
+
+// Макеты интерфейса — статичные страницы, логики в них нет; кладём рядом,
+// чтобы их можно было открыть по адресу и сравнить с рабочим приложением.
+const designDir = path.join(root, 'design');
+if (fs.existsSync(designDir)) {
+  for (const name of fs.readdirSync(designDir).filter((n) => n.endsWith('.html'))) {
+    fs.copyFileSync(path.join(designDir, name), path.join(root, 'dist', name));
+    console.log(`dist/${name}`.padEnd(29) + kb(fs.readFileSync(path.join(designDir, name), 'utf8')));
+  }
+}
+
 console.log(`dist/nsis.js                 ${kb(bundle)}`);
 console.log(`dist/index.html               ${kb(page)}`);
 console.log(`закладка «забрать»           ${kb(grabmark)}`);
