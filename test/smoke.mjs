@@ -134,7 +134,11 @@ if (entry) {
   ok('ФУ определён', entry.manager === 'Щенников Алексей Дмитриевич', entry.manager);
   ok('hash посчитан', /^[0-9a-f]{64}$/.test(entry.hash || ''), entry.hash);
   // Папки нет, файл уходит обычным скачиванием — значит имя латиницей.
-  ok('имя файла с ФИО и делом', /^Bortsov Nikolay Valerevich - A50-26151-2025 - /.test(entry.fileName || ''), entry.fileName);
+  ok(
+    'имя файла: дата, НСИС, дело',
+    /^\d{2}\.\d{2}\.\d{4} - NSIS - A50-26151-2025\.pdf$/.test(entry.fileName || ''),
+    entry.fileName
+  );
 }
 ok('незавершённое обращение пропущено', app.core.state.entries.length === 1, app.core.state.entries.map((e) => e.requestId));
 ok('файл отдан на загрузку (папки в jsdom нет)', downloads.length === 1, downloads);

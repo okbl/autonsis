@@ -56,7 +56,7 @@ const DEFAULTS = {
   watchSec: 10, // просмотр папки загрузок, секунды
   concurrency: 4,
   retries: 3,
-  nameBy: 'both', // чем называть файл: fio | case | both
+  nameBy: 'dateCase', // чем называть файл: dateCase | fio | case | both
   byManager: false, // раскладывать по папкам ФУ
   byCase: false, // … и по номеру дела
   byDay: true, // … и по дню

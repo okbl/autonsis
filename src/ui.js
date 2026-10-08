@@ -445,6 +445,7 @@ export const UI = {
               <label>Называть файл</label>
               <select data-cfg-text="nameBy">
                 ${[
+                  ['dateCase', 'дата, НСИС, номер дела'],
                   ['fio', 'по ФИО должника'],
                   ['case', 'по номеру дела'],
                   ['both', 'ФИО и номер дела'],

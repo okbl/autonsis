@@ -365,8 +365,9 @@ function parseAnswer(pages) {
  * же переедут в другую среду, если однажды появится отдельная программа.
  *
  * Папка — на каждый день скачивания: «НСИС\20.09.2026\».
- * Имя    — «ФИО — дата-время.pdf», как в задании, плюс номер дела, когда он
- *          нашёлся в ответе: искать файл по делу удобнее, чем по дате.
+ * Имя    — по умолчанию «дата - НСИС - номер дела.pdf»: так в папке сразу
+ *          видно, откуда файл и к какому делу он относится. Остальные
+ *          варианты (ФИО, дело, и то и другое) остаются в настройках.
  */
 
 const BAD_CHARS = /[\\/:*?"<>|\u0000-\u001f]/g;
@@ -399,14 +400,22 @@ function sanitize(part) {
  * Имя файла ответа.
  * @param {{fio: string[], caseNo: string|null}} parsed
  * @param {Date} when время раскладки
- * @param {{nameBy?: 'fio'|'case'|'both'}} opts чем называть файл
+ * @param {{nameBy?: 'dateCase'|'fio'|'case'|'both'}} opts чем называть файл
  */
 function fileNameFor(parsed, when = new Date(), opts = {}) {
-  const mode = opts.nameBy || 'both';
+  const mode = opts.nameBy || 'dateCase';
   const names = (parsed && parsed.fio) || [];
   const caseNo = parsed && parsed.caseNo ? sanitize(parsed.caseNo) : '';
   let who = names.length ? names[0] : '';
   if (names.length > 1) who += ' и др.';
+
+  // Вариант по умолчанию: дата скачивания, источник и номер дела в АС.
+  // Время в имя не идёт — файлы и так лежат в папке за день, а совпадения
+  // разводит «Файл (1).pdf».
+  if (mode === 'dateCase') {
+    const tail = caseNo || who || 'Не определено';
+    return `${sanitize([folderForDay(when), 'НСИС', tail].join(' - '))}.pdf`;
+  }
 
   // Если того, чем просили называть, в ответе не нашлось — берём второе,
   // чтобы файл не превратился в безликое «Не определено».
@@ -941,7 +950,7 @@ const DEFAULTS = {
   watchSec: 10, // просмотр папки загрузок, секунды
   concurrency: 4,
   retries: 3,
-  nameBy: 'both', // чем называть файл: fio | case | both
+  nameBy: 'dateCase', // чем называть файл: dateCase | fio | case | both
   byManager: false, // раскладывать по папкам ФУ
   byCase: false, // … и по номеру дела
   byDay: true, // … и по дню
@@ -2185,6 +2194,7 @@ const UI = {
               <label>Называть файл</label>
               <select data-cfg-text="nameBy">
                 ${[
+                  ['dateCase', 'дата, НСИС, номер дела'],
                   ['fio', 'по ФИО должника'],
                   ['case', 'по номеру дела'],
                   ['both', 'ФИО и номер дела'],
