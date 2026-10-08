@@ -206,9 +206,15 @@ pageApp.core.stopAuto(true);
 ok('приложение смонтировано в контейнер страницы', !!site.window.document.querySelector('#nsis-app #nsis-auto-panel'));
 ok('недоступность НСИС распознана', pageApp.core.state.nsis === 'blocked', pageApp.core.state.nsis);
 const pageShadow = () => site.window.document.getElementById('nsis-auto-panel').shadowRoot.innerHTML;
-ok('предложен мост через список кабинета', pageShadow().includes('Забрать ответы из НСИС'));
-ok('есть кнопка «Открыть список»', pageShadow().includes('Открыть список НСИС'));
 ok('есть кнопка настроек', pageShadow().includes('Настройки'));
+// Мост переехал в настройки — на главном экране его быть не должно.
+ok('моста на главном экране нет', !pageShadow().includes('Открыть список НСИС'));
+pageApp.ui.cfgOpen = true;
+pageApp.ui.render();
+ok('мост есть в настройках', pageShadow().includes('Открыть список НСИС'));
+ok('сводка есть в настройках', pageShadow().includes('разложено сегодня'));
+pageApp.ui.cfgOpen = false;
+pageApp.ui.render();
 // Сводку убрали с главного экрана — она живёт в настройках.
 ok('сводки на главном экране нет', !pageShadow().includes('разложено сегодня'), pageShadow().slice(0, 200));
 
@@ -225,7 +231,11 @@ const bridge = await pageApp.core.takeList(
 );
 eqx('мост посчитал обращения', [bridge.seen, bridge.ready, bridge.started], [2, 1, 1]);
 ok('открыт адрес готового ответа', opened.length === 1 && opened[0].includes('fileId=f1'), opened);
-ok('итог моста виден в интерфейсе', pageShadow().includes('Запущено скачиваний: 1'));
+pageApp.ui.cfgOpen = true;
+pageApp.ui.render();
+ok('итог моста виден в настройках', pageShadow().includes('Запущено скачиваний: 1'));
+pageApp.ui.cfgOpen = false;
+pageApp.ui.render();
 const bad = await pageApp.core.takeList('совсем не json');
 ok('мусор объяснён человеческим языком', /не удалось разобрать JSON/.test(bad.error || ''), bad);
 
@@ -239,6 +249,9 @@ ok('номер дела из перетащенного файла', dropped && 
 ok('файл отдан на сохранение', pageDownloads.length === 1, pageDownloads);
 ok('в журнале виден источник', dropped && dropped.source === 'history_22.09.2026.pdf', dropped && dropped.source);
 ok('должник показан в таблице', pageShadow().includes('Кузнецова Анна Сергеевна'));
+ok('ФИО копируется нажатием', pageShadow().includes('data-do="copyFio"'));
+ok('номер дела копируется нажатием', pageShadow().includes('data-do="copyCase"'));
+ok('кнопки «Ещё раз» у разложенного нет', !pageShadow().includes('>Ещё раз<'));
 
 console.log(failed ? `\n${failed} проверок не прошло` : '\nвсе проверки прошли');
 process.exit(failed ? 1 : 0);

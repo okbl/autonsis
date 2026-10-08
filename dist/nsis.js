@@ -1794,14 +1794,17 @@ input:focus,select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 
 input.q{flex:1 1 260px}
 
 /* ---------- журнал ---------- */
-.hdr,.row{display:grid;grid-template-columns:minmax(190px,1.3fr) 142px 104px minmax(170px,1.4fr) 300px;gap:14px;align-items:center}
+.hdr,.row{display:grid;grid-template-columns:minmax(0,1.35fr) 150px 104px minmax(0,1.3fr) max-content;gap:14px;align-items:center}
+.hdr>*,.row>*{min-width:0}
 .hdr{padding:2px 20px 0;font-size:11.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
 .hdr span:last-child{text-align:right}
 .row{background:#fff;border-radius:var(--r);box-shadow:var(--shadow);padding:15px 20px}
-.row .who{font-weight:600}
+.row .who{font-weight:600;line-height:1.3}
+.copy{cursor:pointer;border-bottom:1px dashed #1C2F5440}
+.copy:hover{color:var(--blue);border-bottom-color:var(--blue)}
 .sub{color:var(--ink-3);font-size:12.5px;margin-top:2px}
 .cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.right{display:flex;align-items:center;gap:9px;justify-content:flex-end}
+.right{display:flex;align-items:center;gap:9px;justify-content:flex-end;white-space:nowrap}
 .st{display:inline-flex;align-items:center;gap:7px;border-radius:var(--pill);padding:6px 13px;font-size:13px;white-space:nowrap}
 .st:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 .st.ok{background:var(--greenBg);color:var(--greenInk)}
@@ -1937,6 +1940,8 @@ const UI = {
       again: () => Core.again(id),
       open: () => Core.openFile(entry()),
       filePath: () => this.copy(Core.fullPath(entry()), 'Путь к файлу'),
+      copyFio: () => this.copy(((entry() || {}).fio || []).join(', '), 'ФИО'),
+      copyCase: () => this.copy((entry() || {}).caseNo || '', 'Номер дела'),
       dayPath: () => this.copy(Core.folderPath((entry() || {}).day), 'Путь к папке'),
       rootPath: () => this.copy(Core.folderPath(), 'Путь к папке НСИС'),
     }[action];
@@ -2094,25 +2099,6 @@ const UI = {
         `<div class="note attn"><b>Сессия НСИС истекла</b>Войдите в кабинет по УКЭП в этой же вкладке — приложение само заметит новую сессию, определит ФУ и продолжит.</div>`
       );
     }
-    if (this.mode === 'page' && s.nsis === 'blocked') {
-      const b = s.bridge;
-      const result = !b
-        ? ''
-        : b.error
-        ? `<div class="sub" style="color:var(--redInk);margin-top:8px">${esc(b.error)}</div>`
-        : `<div class="sub" style="margin-top:8px">Обращений в списке: ${b.seen}, из них с готовым ответом: ${b.ready}. Запущено скачиваний: ${b.started}.${
-            b.ready && !b.started ? ' Всё это уже разложено раньше.' : ''
-          }</div>`;
-      notes.push(
-        `<div class="note"><b>Забрать ответы из НСИС</b>Читать список кабинета с этой страницы браузер не даёт, а открыть его вам — даёт.
-         <ol class="steps">
-           <li>Войдите в НСИС в соседней вкладке и нажмите <b>«Открыть список»</b>.</li>
-           <li>В открывшейся вкладке — <b>Ctrl+S</b> в папку загрузок, либо <b>Ctrl+A</b>, <b>Ctrl+C</b> и «Вставить список».</li>
-           <li>Дальше само: скачивание, имена, папки по дням, журнал.</li>
-         </ol>
-         <button class="btn" data-do="list">Открыть список НСИС</button><button class="btn sec" data-do="paste">Вставить список</button>${result}</div>`
-      );
-    }
     if (this.mode === 'page' && (s.nsis === 'session' || s.nsis === 'down')) {
       notes.push(
         `<div class="note attn"><b>${
@@ -2171,6 +2157,7 @@ const UI = {
             ${panel ? '' : `<label class="chk"><input type="checkbox" data-cfg="moveFromInbox" ${c.moveFromInbox ? 'checked' : ''}> убирать разложенное из папки загрузок</label>`}
           </div>
         </div>
+        ${this.mode === 'page' ? this.bridgeHtml(s) : ''}
         <div>
           <h3>Если что-то не так</h3>
           <div class="acts"><button class="btn sec" data-do="diag">Собрать отчёт о состоянии</button></div>
@@ -2178,6 +2165,30 @@ const UI = {
         </div>
       </div>
     `;
+  },
+
+  /*
+   * Мост «открыть список кабинета и отдать его странице» лежит в настройках:
+   * каждый день он не нужен, а на главном экране только мешал.
+   */
+  bridgeHtml(s) {
+    const b = s.bridge;
+    const result = !b
+      ? ''
+      : b.error
+      ? `<div class="sub" style="color:var(--redInk);margin-top:8px">${esc(b.error)}</div>`
+      : `<div class="sub" style="margin-top:8px">Обращений в списке: ${b.seen}, с готовым ответом: ${b.ready}. Запущено скачиваний: ${b.started}.</div>`;
+    return `
+      <div>
+        <h3>Забрать список из НСИС</h3>
+        <div class="sub">Открывает журнал обращений кабинета в соседней вкладке. Сохраните его туда же,
+        куда браузер кладёт загрузки (<b>Ctrl+S</b>), либо скопируйте (<b>Ctrl+A</b>, <b>Ctrl+C</b>) и нажмите
+        «Вставить список» — страница заберёт из него готовые ответы.</div>
+        <div class="acts" style="margin-top:10px">
+          <button class="btn sec" data-do="list">Открыть список НСИС</button>
+          <button class="btn sec" data-do="paste">Вставить список</button>
+        </div>${result}
+      </div>`;
   },
 
   renderRows() {
@@ -2204,8 +2215,14 @@ const UI = {
     const sub = [birth ? `${birth} г. р.` : '', shortFio(e.manager)].filter(Boolean).join(' · ');
     return `
       <div class="row">
-        <div><div class="who cell" title="${esc(fio)}">${esc(fio)}</div>${sub ? `<div class="sub cell">${esc(sub)}</div>` : ''}</div>
-        <div class="cell">${esc(e.caseNo || '—')}</div>
+        <div><div class="who"><span class="copy" data-do="copyFio" data-id="${esc(e.requestId)}" title="Нажмите, чтобы скопировать ФИО">${esc(fio)}</span></div>${
+          sub ? `<div class="sub cell">${esc(sub)}</div>` : ''
+        }</div>
+        <div class="cell">${
+          e.caseNo
+            ? `<span class="copy" data-do="copyCase" data-id="${esc(e.requestId)}" title="Нажмите, чтобы скопировать номер дела">${esc(e.caseNo)}</span>`
+            : '—'
+        }</div>
         <div class="cell">${esc(e.answerDate || dateOf(e.createDate) || '—')}</div>
         <div>${
           e.fileName
@@ -2217,7 +2234,7 @@ const UI = {
           ${inFolder && Core.state.folder === 'ready' ? `<button class="btn sec sm" data-do="open" data-id="${esc(e.requestId)}">Открыть</button>` : ''}
           ${e.fileName ? `<button class="btn sec sm" data-do="filePath" data-id="${esc(e.requestId)}" title="Скопировать полный путь к файлу">Путь</button>` : ''}
           ${inFolder ? `<button class="btn sec sm" data-do="dayPath" data-id="${esc(e.requestId)}" title="Скопировать путь к папке с этим файлом">Папка</button>` : ''}
-          <button class="btn sec sm" data-do="again" data-id="${esc(e.requestId)}" title="Сделать ещё одну копию файла">Ещё раз</button>
+          ${e.status === 'error' ? `<button class="btn sec sm" data-do="again" data-id="${esc(e.requestId)}" title="Попробовать скачать ещё раз">Повторить</button>` : ''}
         </div>
         ${e.error && e.fileName ? `<div class="sub" style="grid-column:1/-1">${esc(e.error)}${e.attempts ? `, попыток: ${e.attempts}` : ''}</div>` : ''}
       </div>`;
