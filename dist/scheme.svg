@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 700" width="1240" height="700" font-family="Onest, Segoe UI, system-ui, sans-serif">
+  <style>
+    .box{fill:#fff;stroke:#1C2F5440;stroke-width:1.5;rx:18}
+    .box.dim{fill:#F2F5FA}
+    .t{fill:#2F3541;font-size:16px;font-weight:600}
+    .s{fill:#575D69;font-size:13px}
+    .m{fill:#7E8492;font-size:12px}
+    .arrow{stroke:#0A4FCA;stroke-width:2;fill:none;marker-end:url(#a)}
+    .arrow.todo{stroke-dasharray:7 5}
+    .lbl{fill:#0A4FCA;font-size:12.5px;font-weight:600}
+    .num{fill:#0A4FCA}
+    .numt{fill:#fff;font-size:12px;font-weight:700;text-anchor:middle}
+    .hdr{fill:#162F5A;font-size:13px;font-weight:600;letter-spacing:.04em}
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 10 5 0 10z" fill="#0A4FCA"/>
+    </marker>
+  </defs>
+  <rect width="1240" height="700" fill="#F2F5FA"/>
+
+  <text x="40" y="44" class="t" font-size="20">Полная автоматизация: обмен через папку</text>
+  <text x="40" y="68" class="s">Сплошные стрелки — то, что работает сегодня. Пунктир — то, что предстоит и требует решения по доступу к НСИС.</text>
+
+  <!-- 1С -->
+  <rect class="box" x="40" y="100" width="215" height="440"/>
+  <text x="60" y="132" class="hdr">1С</text>
+  <text x="60" y="160" class="t" font-size="15">Карточка дела</text>
+  <text x="60" y="186" class="s">ФИО должника и супруга</text>
+  <text x="60" y="206" class="s">даты рождения, паспорта</text>
+  <text x="60" y="226" class="s">номер дела в АС</text>
+  <text x="60" y="252" class="t" font-size="15">Присоединённые файлы</text>
+  <text x="60" y="278" class="s">решение об утверждении ФУ</text>
+  <text x="60" y="298" class="s">свидетельство о браке</text>
+  <line x1="60" y1="330" x2="235" y2="330" stroke="#ECEEF2" stroke-width="1.5"/>
+  <text x="60" y="358" class="t" font-size="15">Обработка выгрузки</text>
+  <text x="60" y="382" class="m">кладёт задания в папку</text>
+  <text x="60" y="412" class="t" font-size="15">Обработка приёмки</text>
+  <text x="60" y="436" class="m">прикрепляет ответ к делу</text>
+  <text x="60" y="470" class="m">1С уже разрешена на этом</text>
+  <text x="60" y="488" class="m">компьютере — ставить нечего</text>
+
+  <!-- Папка обмена -->
+  <rect class="box dim" x="320" y="100" width="245" height="440"/>
+  <text x="340" y="132" class="hdr">ПАПКА ОБМЕНА</text>
+  <rect class="box" x="340" y="150" width="205" height="150"/>
+  <text x="358" y="178" class="t" font-size="14">задания\</text>
+  <text x="358" y="202" class="s">А50-26151-2025.json</text>
+  <text x="358" y="222" class="s">А50-26151-2025\</text>
+  <text x="372" y="242" class="m">решение.pdf</text>
+  <text x="372" y="262" class="m">брак.pdf</text>
+  <text x="358" y="288" class="m">что запросить и чем подтвердить</text>
+  <rect class="box" x="340" y="330" width="205" height="180"/>
+  <text x="358" y="358" class="t" font-size="14">результаты\</text>
+  <text x="358" y="382" class="s">А50-26151-2025.json</text>
+  <text x="372" y="402" class="m">статус, дата, requestId</text>
+  <text x="372" y="422" class="m">ФИО, hash, путь к файлу</text>
+  <text x="358" y="448" class="s">ответ.pdf</text>
+  <text x="358" y="476" class="m">1С забирает и прикрепляет</text>
+  <text x="358" y="496" class="m">к карточке дела</text>
+
+  <!-- Инструмент -->
+  <rect class="box" x="630" y="100" width="275" height="440"/>
+  <text x="650" y="132" class="hdr">ИНСТРУМЕНТ</text>
+  <text x="650" y="162" class="t" font-size="15">Создание запросов</text>
+  <text x="650" y="186" class="s">заполняет форму кабинета</text>
+  <text x="650" y="206" class="s">прикладывает документы</text>
+  <text x="650" y="226" class="s">подписывает УКЭП</text>
+  <text x="650" y="246" class="m">плагин КриптоПро, открепленная</text>
+  <text x="650" y="264" class="m">подпись в заголовке запроса</text>
+  <line x1="650" y1="292" x2="885" y2="292" stroke="#ECEEF2" stroke-width="1.5"/>
+  <text x="650" y="320" class="t" font-size="15">Приём ответов</text>
+  <text x="650" y="344" class="s">следит за журналом обращений</text>
+  <text x="650" y="364" class="s">скачивает готовые PDF</text>
+  <text x="650" y="390" class="t" font-size="15">Разбор и раскладка</text>
+  <text x="650" y="414" class="s">ФИО, дата рождения, № дела</text>
+  <text x="650" y="434" class="s">имя файла, папки, дубликаты</text>
+  <text x="650" y="454" class="s">журнал.json</text>
+  <rect x="650" y="474" width="235" height="46" rx="12" fill="#FDF1E0" stroke="#f3c88a66"/>
+  <text x="664" y="494" class="s" fill="#9A5A00" font-weight="600">Человек подтверждает подпись</text>
+  <text x="664" y="512" class="m" fill="#9A5A00">один раз на пачку, не на файл</text>
+
+  <!-- НСИС -->
+  <rect class="box" x="970" y="100" width="230" height="195"/>
+  <text x="990" y="132" class="hdr">НСИС</text>
+  <text x="990" y="162" class="t" font-size="15">Личный кабинет</text>
+  <text x="990" y="188" class="s">принимает запрос</text>
+  <text x="990" y="208" class="s">проверяет подпись</text>
+  <text x="990" y="236" class="s">через 1–2 дня готовит</text>
+  <text x="990" y="256" class="s">ответ в PDF</text>
+  <text x="990" y="282" class="m">вход по УКЭП — ваш</text>
+
+  <!-- Папка с делами -->
+  <rect class="box" x="970" y="345" width="230" height="195"/>
+  <text x="990" y="377" class="hdr">ПАПКА С ДЕЛАМИ</text>
+  <text x="990" y="405" class="s">НСИС\</text>
+  <text x="1004" y="425" class="s">Морза Ю. С.\</text>
+  <text x="1018" y="445" class="s">А50-26151-2025\</text>
+  <text x="1032" y="465" class="m">Сидоров С. С. —</text>
+  <text x="1032" y="483" class="m">08.10.2026.pdf</text>
+  <text x="990" y="513" class="m">раскладка по настройкам:</text>
+  <text x="990" y="531" class="m">ФУ, дело, день</text>
+
+  <!-- Стрелки: прямой ход -->
+  <path class="arrow todo" d="M255 200 H 318"/>
+  <circle class="num" cx="287" cy="200" r="12" stroke="#F2F5FA" stroke-width="3"/><text class="numt" x="287" y="204">1</text>
+  <rect x="233" y="152" width="108" height="24" rx="12" fill="#F2F5FA"/>
+  <text x="287" y="169" class="lbl" text-anchor="middle">дело и файлы</text>
+
+  <path class="arrow todo" d="M567 200 H 628"/>
+  <circle class="num" cx="597" cy="200" r="12" stroke="#F2F5FA" stroke-width="3"/><text class="numt" x="597" y="204">2</text>
+  <rect x="553" y="152" width="88" height="24" rx="12" fill="#F2F5FA"/>
+  <text x="597" y="169" class="lbl" text-anchor="middle">задание</text>
+
+  <path class="arrow todo" d="M907 170 H 968"/>
+  <circle class="num" cx="937" cy="170" r="12" stroke="#F2F5FA" stroke-width="3"/><text class="numt" x="937" y="174">3</text>
+  <rect x="885" y="122" width="104" height="24" rx="12" fill="#F2F5FA"/>
+  <text x="937" y="139" class="lbl" text-anchor="middle">с подписью</text>
+
+  <!-- Стрелки: обратный ход -->
+  <path class="arrow" d="M968 250 H 907"/>
+  <circle class="num" cx="937" cy="250" r="12" stroke="#F2F5FA" stroke-width="3"/><text class="numt" x="937" y="254">4</text>
+  <rect x="895" y="276" width="84" height="24" rx="12" fill="#F2F5FA"/>
+  <text x="937" y="293" class="lbl" text-anchor="middle">ответ</text>
+
+  <path class="arrow" d="M907 430 H 968"/>
+  <circle class="num" cx="937" cy="430" r="12" stroke="#F2F5FA" stroke-width="3"/><text class="numt" x="937" y="434">5</text>
+  <rect x="891" y="382" width="92" height="24" rx="12" fill="#F2F5FA"/>
+  <text x="937" y="399" class="lbl" text-anchor="middle">в папку</text>
+
+  <path class="arrow todo" d="M628 400 H 567"/>
+  <circle class="num" cx="597" cy="400" r="12" stroke="#F2F5FA" stroke-width="3"/><text class="numt" x="597" y="404">6</text>
+  <rect x="557" y="352" width="80" height="24" rx="12" fill="#F2F5FA"/>
+  <text x="597" y="369" class="lbl" text-anchor="middle">итог</text>
+
+  <path class="arrow todo" d="M318 400 H 257"/>
+  <circle class="num" cx="287" cy="400" r="12" stroke="#F2F5FA" stroke-width="3"/><text class="numt" x="287" y="404">7</text>
+  <rect x="253" y="352" width="68" height="24" rx="12" fill="#F2F5FA"/>
+  <text x="287" y="369" class="lbl" text-anchor="middle">в 1С</text>
+
+  <!-- Легенда -->
+  <line x1="40" y1="578" x2="1200" y2="578" stroke="#ECEEF2" stroke-width="1.5"/>
+  <path d="M40 606 H 90" class="arrow"/>
+  <text x="102" y="611" class="s">работает сегодня: забор ответов, разбор PDF, имена, папки, журнал</text>
+  <path d="M40 638 H 90" class="arrow todo"/>
+  <text x="102" y="643" class="s">предстоит: выгрузка и приёмка в 1С, создание запросов — упирается в доступ к кабинету (расширение, программа вне браузера или сама 1С)</text>
+  <text x="40" y="676" class="m">Шаги 1–3 и 6–7 идут через файлы: ни 1С, ни инструмент не лезут друг другу внутрь. Подпись УКЭП остаётся за человеком.</text>
+</svg>
